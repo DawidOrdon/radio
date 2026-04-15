@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radio-wezel"
+version = "0.2.0"
+description = "Aplikacja radiowęzła szkolnego (serwer desktop + klient tła)"
+requires-python = ">=3.11"
+dependencies = [
+  "sounddevice==0.5.2",
+  "APScheduler==3.11.0",
+  "pydub==0.25.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["radio_wz*"]
