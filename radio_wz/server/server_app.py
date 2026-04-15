@@ -221,6 +221,8 @@ class ServerApp:
         ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
         ttk.Button(top, text="Stop nadawania", command=self.stop_playback).pack(side="left", padx=6)
+        self.now_playing_var = tk.StringVar(value="Teraz odtwarzane: -")
+        ttk.Label(top, textvariable=self.now_playing_var).pack(side="left", padx=12)
 
         params = ttk.LabelFrame(self.root, text="Parametry audio (zmiana z poziomu programu)")
         params.pack(fill="x", padx=8, pady=8)
@@ -499,8 +501,8 @@ class ServerApp:
                 with self.queue_lock:
                     if not self.queue:
                         break
-                    track = self.queue.pop(0)
-                self.root.after(0, self.refresh_queue_view)
+                    track = self.queue[0]
+                self.root.after(0, lambda t=track: self.now_playing_var.set(f"Teraz odtwarzane: {t.name}"))
                 try:
                     for chunk in self._decode_track_chunks(track):
                         if self.stop_event.is_set():
@@ -509,6 +511,11 @@ class ServerApp:
                         time.sleep(self.config.blocksize / self.config.sample_rate)
                 except Exception as exc:  # noqa: BLE001
                     logging.error("Błąd odczytu utworu %s: %s", track, exc)
+                with self.queue_lock:
+                    if self.queue and self.queue[0] == track and not self.stop_event.is_set():
+                        self.queue.pop(0)
+                self.root.after(0, self.refresh_queue_view)
+            self.root.after(0, lambda: self.now_playing_var.set("Teraz odtwarzane: -"))
             self.stop_playback()
 
         self._start_worker(worker)
