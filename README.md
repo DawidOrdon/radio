@@ -1,4 +1,4 @@
-# RadioWęzeł (wersja pełna v0.2)
+# RadioWęzeł (wersja pełna v0.3)
 
 Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem działającym w tle.
 
@@ -22,53 +22,72 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - ma globalny offset ustawiany na klientach,
 - ma prosty mechanizm parowania (hasło).
 
-## Wymagania
+## Wymagania (Windows 11)
 
 - Python 3.11+
-- (dla MP3 przez pydub) zainstalowany FFmpeg w systemie
+- FFmpeg w systemie (dla plików MP3 przez `pydub`)
 
-## Instalacja
+## Instalacja (Windows PowerShell)
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Konfiguracja
+## Instalacja (Windows CMD)
 
-```bash
-cp server-config.example.json server-config.json
-cp client-config.example.json client-config.json
+```cmd
+py -3.11 -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## Konfiguracja (Windows)
+
+### PowerShell
+
+```powershell
+Copy-Item server-config.example.json server-config.json
+Copy-Item client-config.example.json client-config.json
+```
+
+### CMD
+
+```cmd
+copy server-config.example.json server-config.json
+copy client-config.example.json client-config.json
 ```
 
 Na każdym kliencie ustaw unikalny `client_id` i nazwę `client_name`.
 
-## Uruchomienie
+## Uruchomienie (Windows)
 
 ### Serwer
 
-```bash
+```powershell
 python -m radio_wz.server.server_app --config server-config.json
 ```
 
 ### Klient
 
-```bash
+```powershell
 python -m radio_wz.client.client_service --config client-config.json
 ```
 
 ## Uruchamianie klienta jako usługa (Windows)
 
-Najprościej przez NSSM lub Task Scheduler ("Run whether user is logged on or not").
+Najprościej przez NSSM lub Task Scheduler (`Run whether user is logged on or not`).
 Wtedy klient działa po starcie systemu bez aktywnej sesji RDP.
 
-## Uwagi wdrożeniowe
+## Firewall (Windows)
 
-- Zalecany osobny VLAN dla radiowęzła.
-- Ustaw stałe IP serwera/klientów lub DHCP reservation.
-- Sprawdź zaporę Windows (porty UDP 42500/42510 i TCP 42520).
-
+Otwórz porty:
+- UDP 42500 (discovery)
+- UDP 42510 (audio)
+- TCP 42520 (control)
 
 ## Stabilność i bezpieczeństwo (v0.3)
 
