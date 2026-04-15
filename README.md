@@ -18,8 +18,8 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - streamuje dźwięk z wejścia mikrofonowego do zaznaczonych klientów,
 - skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
-- ma automatyczne uruchamianie i zatrzymywanie kolejki wg harmonogramu,
-- ma globalny offset ustawiany na klientach,
+- ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
+- ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
 - ma prosty mechanizm parowania (hasło).
 
 ## Wymagania (Windows 11)
@@ -99,3 +99,11 @@ Otwórz porty:
 - timeouty i obsługa błędów sieci/audio,
 - walidacja czasu harmonogramu,
 - automatyczne usuwanie nieaktywnych klientów.
+
+
+## Zmiany UI (runtime)
+
+- offset podajesz ręcznie jako sekundy (np. `2` lub `2.5`),
+- harmonogram pozwala dodawać wiele przedziałów START/STOP (np. kilka przerw),
+- parametry audio (`sample_rate`, `channels`, `blocksize`, `mic_input_device`) zmieniasz z poziomu GUI bez edycji pliku konfiguracyjnego,
+- tryb mikrofonu działa jako pass-through: serwer nie przetwarza sygnału, tylko przekazuje wejście audio do klientów.

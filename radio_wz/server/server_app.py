@@ -195,6 +195,7 @@ class ServerApp:
 
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
+        self.schedule_job_ids: list[str] = []
 
         self._refresh_loop_enabled = True
 
@@ -204,20 +205,37 @@ class ServerApp:
         self._refresh_clients_periodic()
 
     def _build_ui(self) -> None:
-        self.root.geometry("1200x760")
+        self.root.geometry("1250x780")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         top = ttk.Frame(self.root)
         top.pack(fill="x", padx=8, pady=8)
 
-        self.offset_var = tk.IntVar(value=self.config.global_offset_ms)
-        ttk.Label(top, text="Globalny offset (ms):").pack(side="left")
-        ttk.Scale(top, from_=0, to=5000, variable=self.offset_var, orient="horizontal", length=250).pack(side="left", padx=6)
+        self.offset_seconds_var = tk.StringVar(value=f"{self.config.global_offset_ms / 1000:.1f}")
+        ttk.Label(top, text="Offset (sekundy):").pack(side="left")
+        ttk.Entry(top, textvariable=self.offset_seconds_var, width=7).pack(side="left", padx=6)
         ttk.Button(top, text="Ustaw offset na klientach", command=self.push_offset).pack(side="left", padx=6)
 
-        ttk.Button(top, text="Start mikrofon", command=self.start_microphone).pack(side="left", padx=6)
+        ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
         ttk.Button(top, text="Stop nadawania", command=self.stop_playback).pack(side="left", padx=6)
+
+        params = ttk.LabelFrame(self.root, text="Parametry audio (zmiana z poziomu programu)")
+        params.pack(fill="x", padx=8, pady=8)
+        self.sample_rate_var = tk.StringVar(value=str(self.config.sample_rate))
+        self.channels_var = tk.StringVar(value=str(self.config.channels))
+        self.blocksize_var = tk.StringVar(value=str(self.config.blocksize))
+        self.input_device_var = tk.StringVar(value="" if self.config.mic_input_device is None else str(self.config.mic_input_device))
+        ttk.Label(params, text="Sample rate:").pack(side="left", padx=4)
+        ttk.Entry(params, textvariable=self.sample_rate_var, width=8).pack(side="left")
+        ttk.Label(params, text="Kanały:").pack(side="left", padx=4)
+        ttk.Entry(params, textvariable=self.channels_var, width=4).pack(side="left")
+        ttk.Label(params, text="Blocksize:").pack(side="left", padx=4)
+        ttk.Entry(params, textvariable=self.blocksize_var, width=6).pack(side="left")
+        ttk.Label(params, text="Mic input idx:").pack(side="left", padx=4)
+        ttk.Entry(params, textvariable=self.input_device_var, width=8).pack(side="left")
+        ttk.Button(params, text="Zastosuj parametry", command=self.apply_runtime_audio_settings).pack(side="left", padx=8)
+        ttk.Button(params, text="Lista wejść audio", command=self.show_input_devices).pack(side="left", padx=6)
 
         center = ttk.Panedwindow(self.root, orient="horizontal")
         center.pack(fill="both", expand=True, padx=8, pady=8)
@@ -255,21 +273,58 @@ class ServerApp:
         ttk.Button(right, text="Przesuń wyżej", command=self.move_up_queue).pack(anchor="w")
         ttk.Button(right, text="Przesuń niżej", command=self.move_down_queue).pack(anchor="w")
 
-        sched = ttk.LabelFrame(self.root, text="Automatyka kolejki")
+        sched = ttk.LabelFrame(self.root, text="Automatyka kolejki (wiele przerw)")
         sched.pack(fill="x", padx=8, pady=8)
         ttk.Label(sched, text="Start HH:MM").pack(side="left", padx=4)
         self.start_time_var = tk.StringVar(value="07:55")
         ttk.Entry(sched, textvariable=self.start_time_var, width=8).pack(side="left")
         ttk.Label(sched, text="Stop HH:MM").pack(side="left", padx=4)
-        self.stop_time_var = tk.StringVar(value="15:30")
+        self.stop_time_var = tk.StringVar(value="08:05")
         ttk.Entry(sched, textvariable=self.stop_time_var, width=8).pack(side="left")
-        ttk.Button(sched, text="Zapisz harmonogram dzienny", command=self.save_daily_schedule).pack(side="left", padx=8)
+        ttk.Button(sched, text="Dodaj przedział", command=self.add_schedule_interval).pack(side="left", padx=8)
+        ttk.Button(sched, text="Wyczyść harmonogram", command=self.clear_schedule).pack(side="left", padx=8)
+
+        self.schedule_list = tk.Listbox(self.root, height=5)
+        self.schedule_list.pack(fill="x", padx=8, pady=(0, 8))
 
     def _on_close(self) -> None:
         self._refresh_loop_enabled = False
         self.stop_playback()
         self.scheduler.shutdown(wait=False)
         self.root.destroy()
+
+    def apply_runtime_audio_settings(self) -> None:
+        try:
+            sample_rate = int(self.sample_rate_var.get())
+            channels = int(self.channels_var.get())
+            blocksize = int(self.blocksize_var.get())
+            input_device = self.input_device_var.get().strip()
+            mic_input_device = int(input_device) if input_device else None
+            if sample_rate <= 0 or channels <= 0 or blocksize <= 0:
+                raise ValueError("Dodatnie liczby wymagane")
+        except ValueError:
+            messagebox.showerror("Parametry", "Niepoprawne parametry audio")
+            return
+
+        was_running = self.worker_thread is not None and self.worker_thread.is_alive()
+        self.stop_playback()
+
+        self.config.sample_rate = sample_rate
+        self.config.channels = channels
+        self.config.blocksize = blocksize
+        self.config.mic_input_device = mic_input_device
+
+        if was_running:
+            messagebox.showinfo("Parametry", "Parametry zastosowane. Uruchom ponownie nadawanie.")
+        else:
+            messagebox.showinfo("Parametry", "Parametry audio zapisane w działającej sesji.")
+
+    def show_input_devices(self) -> None:
+        items = []
+        for idx, dev in enumerate(sd.query_devices()):
+            if dev["max_input_channels"] > 0:
+                items.append(f"{idx}: {dev['name']}")
+        messagebox.showinfo("Wejścia audio", "\n".join(items) if items else "Brak wejść audio")
 
     def _refresh_clients_once(self) -> None:
         existing = self.clients_list.curselection()
@@ -298,11 +353,21 @@ class ServerApp:
         return [(c.address, c.hello.audio_port) for c in self._selected_clients()]
 
     def push_offset(self) -> None:
-        offset_value = int(self.offset_var.get())
+        try:
+            offset_seconds = float(self.offset_seconds_var.get().replace(",", "."))
+            if offset_seconds < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Offset", "Podaj offset jako liczbę sekund, np. 2 albo 2.5")
+            return
+
+        offset_value_ms = int(offset_seconds * 1000)
+        self.config.global_offset_ms = offset_value_ms
+
         failures = []
         for client in self._selected_clients():
             try:
-                self.control.send(client.address, client.hello.control_port, ControlMessage("set_offset_ms", {"value": offset_value}))
+                self.control.send(client.address, client.hello.control_port, ControlMessage("set_offset_ms", {"value": offset_value_ms}))
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"{client.hello.client_id}: {exc}")
         if failures:
@@ -329,8 +394,9 @@ class ServerApp:
                 messagebox.showwarning("Nadawanie", "Nadawanie już jest uruchomione. Najpierw kliknij Stop.")
                 return False
             self.stop_event.clear()
-            self.broadcaster.set_destinations(self._current_destinations())
-            if not self._current_destinations():
+            destinations = self._current_destinations()
+            self.broadcaster.set_destinations(destinations)
+            if not destinations:
                 messagebox.showwarning("Klienci", "Nie wybrano żadnego klienta")
                 return False
             self.broadcaster.start_sender()
@@ -339,6 +405,7 @@ class ServerApp:
             return True
 
     def start_microphone(self) -> None:
+        # Pass-through: to, co jest na wejściu z interfejsu audio, wysyłane jest bezpośrednio do klientów.
         def worker() -> None:
             def callback(indata, _frames, _time_info, status):
                 if status:
@@ -357,8 +424,8 @@ class ServerApp:
                     while not self.stop_event.is_set():
                         time.sleep(0.2)
             except sd.PortAudioError as exc:
-                logging.error("Mikrofon niedostępny: %s", exc)
-                self.root.after(0, lambda: messagebox.showerror("Audio", f"Mikrofon niedostępny: {exc}"))
+                logging.error("Mikrofon/interfejs niedostępny: %s", exc)
+                self.root.after(0, lambda: messagebox.showerror("Audio", f"Wejście audio niedostępne: {exc}"))
                 self.stop_playback()
 
         self._start_worker(worker)
@@ -486,20 +553,36 @@ class ServerApp:
             for item in self.queue:
                 self.queue_list.insert(tk.END, item.name)
 
-    def save_daily_schedule(self) -> None:
+    def _parse_hh_mm(self, value: str) -> tuple[int, int]:
+        hour, minute = [int(x) for x in value.split(":")]
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+        return hour, minute
+
+    def add_schedule_interval(self) -> None:
         try:
-            start_h, start_m = [int(x) for x in self.start_time_var.get().split(":")]
-            stop_h, stop_m = [int(x) for x in self.stop_time_var.get().split(":")]
-            if not (0 <= start_h <= 23 and 0 <= start_m <= 59 and 0 <= stop_h <= 23 and 0 <= stop_m <= 59):
-                raise ValueError("Time out of range")
+            start_h, start_m = self._parse_hh_mm(self.start_time_var.get())
+            stop_h, stop_m = self._parse_hh_mm(self.stop_time_var.get())
         except ValueError:
             messagebox.showerror("Harmonogram", "Błędny format czasu. Użyj HH:MM")
             return
 
-        self.scheduler.remove_all_jobs()
-        self.scheduler.add_job(self.start_queue, "cron", hour=start_h, minute=start_m)
-        self.scheduler.add_job(self.stop_playback, "cron", hour=stop_h, minute=stop_m)
-        messagebox.showinfo("Harmonogram", "Zapisano harmonogram dzienny start/stop kolejki")
+        start_id = f"start-{start_h:02d}{start_m:02d}-{time.time_ns()}"
+        stop_id = f"stop-{stop_h:02d}{stop_m:02d}-{time.time_ns()}"
+
+        self.scheduler.add_job(self.start_queue, "cron", hour=start_h, minute=start_m, id=start_id)
+        self.scheduler.add_job(self.stop_playback, "cron", hour=stop_h, minute=stop_m, id=stop_id)
+        self.schedule_job_ids.extend([start_id, stop_id])
+        self.schedule_list.insert(tk.END, f"START {start_h:02d}:{start_m:02d} | STOP {stop_h:02d}:{stop_m:02d}")
+
+    def clear_schedule(self) -> None:
+        for job_id in self.schedule_job_ids:
+            try:
+                self.scheduler.remove_job(job_id)
+            except Exception:  # noqa: BLE001
+                pass
+        self.schedule_job_ids.clear()
+        self.schedule_list.delete(0, tk.END)
 
     def run(self) -> None:
         self.root.mainloop()
