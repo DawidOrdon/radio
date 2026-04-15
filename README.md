@@ -1,0 +1,101 @@
+# RadioWęzeł (wersja pełna v0.3)
+
+Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem działającym w tle.
+
+## Funkcjonalności
+
+### Klient
+- rozgłasza się w sieci LAN przez UDP broadcast,
+- odbiera audio UDP i odtwarza je na wybranym wyjściu audio,
+- posiada bufor opóźnienia (`offset_ms`) dla zsynchronizowanego startu,
+- posiada autoreconnect (ciągłe discovery i nasłuch),
+- udostępnia port sterujący TCP do parowania, zmiany offsetu i wyjścia audio,
+- może działać jako proces tła (zalecane uruchomienie jako usługa Windows).
+
+### Serwer (GUI desktop)
+- wykrywa klientów automatycznie,
+- pozwala wybierać wielu klientów jednocześnie,
+- streamuje dźwięk z wejścia mikrofonowego do zaznaczonych klientów,
+- skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
+- tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
+- ma automatyczne uruchamianie i zatrzymywanie kolejki wg harmonogramu,
+- ma globalny offset ustawiany na klientach,
+- ma prosty mechanizm parowania (hasło).
+
+## Wymagania (Windows 11)
+
+- Python 3.11+
+- FFmpeg w systemie (dla plików MP3 przez `pydub`)
+
+## Instalacja (Windows PowerShell)
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## Instalacja (Windows CMD)
+
+```cmd
+py -3.11 -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## Konfiguracja (Windows)
+
+### PowerShell
+
+```powershell
+Copy-Item server-config.example.json server-config.json
+Copy-Item client-config.example.json client-config.json
+```
+
+### CMD
+
+```cmd
+copy server-config.example.json server-config.json
+copy client-config.example.json client-config.json
+```
+
+Na każdym kliencie ustaw unikalny `client_id` i nazwę `client_name`.
+
+## Uruchomienie (Windows)
+
+### Serwer
+
+```powershell
+python -m radio_wz.server.server_app --config server-config.json
+```
+
+### Klient
+
+```powershell
+python -m radio_wz.client.client_service --config client-config.json
+```
+
+## Uruchamianie klienta jako usługa (Windows)
+
+Najprościej przez NSSM lub Task Scheduler (`Run whether user is logged on or not`).
+Wtedy klient działa po starcie systemu bez aktywnej sesji RDP.
+
+## Firewall (Windows)
+
+Otwórz porty:
+- UDP 42500 (discovery)
+- UDP 42510 (audio)
+- TCP 42520 (control)
+
+## Stabilność i bezpieczeństwo (v0.3)
+
+- per-połączenie parowania klienta (brak globalnej autoryzacji),
+- porównanie hasła przez `hmac.compare_digest`,
+- walidacja komend sterujących i parametrów,
+- ochrona przed wielokrotnym uruchomieniem nadawania,
+- bezpieczne zamykanie wątków i czyszczenie kolejki pakietów,
+- timeouty i obsługa błędów sieci/audio,
+- walidacja czasu harmonogramu,
+- automatyczne usuwanie nieaktywnych klientów.
