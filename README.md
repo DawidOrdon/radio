@@ -21,6 +21,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
 - ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
 - ma przycisk wyboru wyjścia audio klienta z listy urządzeń odczytanej z klienta,
+- ma wyszukiwarkę utworów i dźingli w panelu serwera (ułatwienie dla dużych bibliotek),
 - ma prosty mechanizm parowania (hasło).
 
 ## Wymagania (Windows 11)

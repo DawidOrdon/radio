@@ -188,6 +188,8 @@ class ServerApp:
         self.jingle_tracks: list[Path] = []
         self.queue: list[Path] = []
         self.queue_lock = threading.Lock()
+        self.displayed_music_tracks: list[Path] = []
+        self.displayed_jingle_tracks: list[Path] = []
 
         self.stop_event = threading.Event()
         self.worker_thread: threading.Thread | None = None
@@ -255,12 +257,18 @@ class ServerApp:
 
         ttk.Label(mid, text="Muzyka (katalog)").pack(anchor="w")
         ttk.Button(mid, text="Wybierz katalog muzyki", command=self.load_music_dir).pack(anchor="w")
+        self.music_search_var = tk.StringVar(value="")
+        ttk.Entry(mid, textvariable=self.music_search_var).pack(fill="x", pady=(4, 4))
+        self.music_search_var.trace_add("write", lambda *_: self.refresh_music_view())
         self.music_list = tk.Listbox(mid, height=12)
         self.music_list.pack(fill="x")
         ttk.Button(mid, text="Dodaj do kolejki", command=self.add_music_to_queue).pack(anchor="w", pady=4)
 
         ttk.Label(mid, text="Dźingle (katalog)").pack(anchor="w", pady=(8, 0))
         ttk.Button(mid, text="Wybierz katalog dźingli", command=self.load_jingles_dir).pack(anchor="w")
+        self.jingle_search_var = tk.StringVar(value="")
+        ttk.Entry(mid, textvariable=self.jingle_search_var).pack(fill="x", pady=(4, 4))
+        self.jingle_search_var.trace_add("write", lambda *_: self.refresh_jingles_view())
         self.jingles_list = tk.Listbox(mid, height=8)
         self.jingles_list.pack(fill="x")
         ttk.Button(mid, text="Wstaw dźingiel przed", command=self.insert_jingle_before).pack(anchor="w", pady=4)
@@ -522,25 +530,43 @@ class ServerApp:
         if not folder:
             return
         self.music_tracks = self._scan_audio_dir(Path(folder))
-        self.music_list.delete(0, tk.END)
-        for p in self.music_tracks:
-            self.music_list.insert(tk.END, p.name)
+        self.refresh_music_view()
 
     def load_jingles_dir(self) -> None:
         folder = filedialog.askdirectory(title="Wybierz katalog dźingli")
         if not folder:
             return
         self.jingle_tracks = self._scan_audio_dir(Path(folder))
+        self.refresh_jingles_view()
+
+    def refresh_music_view(self) -> None:
+        query = self.music_search_var.get().strip().lower()
+        if query:
+            self.displayed_music_tracks = [p for p in self.music_tracks if query in p.name.lower()]
+        else:
+            self.displayed_music_tracks = list(self.music_tracks)
+        self.music_list.delete(0, tk.END)
+        for p in self.displayed_music_tracks:
+            self.music_list.insert(tk.END, p.name)
+
+    def refresh_jingles_view(self) -> None:
+        query = self.jingle_search_var.get().strip().lower()
+        if query:
+            self.displayed_jingle_tracks = [p for p in self.jingle_tracks if query in p.name.lower()]
+        else:
+            self.displayed_jingle_tracks = list(self.jingle_tracks)
         self.jingles_list.delete(0, tk.END)
-        for p in self.jingle_tracks:
+        for p in self.displayed_jingle_tracks:
             self.jingles_list.insert(tk.END, p.name)
 
     def add_music_to_queue(self) -> None:
         idx = self.music_list.curselection()
         if not idx:
             return
+        if idx[0] >= len(self.displayed_music_tracks):
+            return
         with self.queue_lock:
-            self.queue.append(self.music_tracks[idx[0]])
+            self.queue.append(self.displayed_music_tracks[idx[0]])
         self.refresh_queue_view()
 
     def insert_jingle_before(self) -> None:
@@ -548,9 +574,11 @@ class ServerApp:
         q_idx = self.queue_list.curselection()
         if not j_idx:
             return
+        if j_idx[0] >= len(self.displayed_jingle_tracks):
+            return
         pos = q_idx[0] if q_idx else 0
         with self.queue_lock:
-            self.queue.insert(pos, self.jingle_tracks[j_idx[0]])
+            self.queue.insert(pos, self.displayed_jingle_tracks[j_idx[0]])
         self.refresh_queue_view()
 
     def insert_jingle_after(self) -> None:
@@ -558,9 +586,11 @@ class ServerApp:
         q_idx = self.queue_list.curselection()
         if not j_idx:
             return
+        if j_idx[0] >= len(self.displayed_jingle_tracks):
+            return
         pos = (q_idx[0] + 1) if q_idx else len(self.queue)
         with self.queue_lock:
-            self.queue.insert(pos, self.jingle_tracks[j_idx[0]])
+            self.queue.insert(pos, self.displayed_jingle_tracks[j_idx[0]])
         self.refresh_queue_view()
 
     def remove_from_queue(self) -> None:
