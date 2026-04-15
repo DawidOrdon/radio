@@ -251,7 +251,7 @@ class ServerApp:
         self.clients_list = tk.Listbox(left, selectmode=tk.MULTIPLE, height=18)
         self.clients_list.pack(fill="x")
         ttk.Button(left, text="Odśwież klientów", command=self._refresh_clients_once).pack(anchor="w", pady=4)
-        ttk.Button(left, text="Ustaw wyjście audio na kliencie", command=self.set_output_on_selected).pack(anchor="w", pady=4)
+        ttk.Button(left, text="Wybierz wyjście audio klienta", command=self.choose_output_on_selected).pack(anchor="w", pady=4)
 
         ttk.Label(mid, text="Muzyka (katalog)").pack(anchor="w")
         ttk.Button(mid, text="Wybierz katalog muzyki", command=self.load_music_dir).pack(anchor="w")
@@ -373,10 +373,51 @@ class ServerApp:
         if failures:
             messagebox.showwarning("Offset", "Nie ustawiono offsetu na części klientów:\n" + "\n".join(failures))
 
-    def set_output_on_selected(self) -> None:
-        device = simpledialog.askinteger("Wyjście audio", "Podaj index output device (lub Cancel=domyślny)")
+    def _fetch_client_output_devices(self, client: ClientState) -> list[dict]:
+        response = self.control.send(client.address, client.hello.control_port, ControlMessage("list_output_devices", {}))
+        if response.cmd != "output_devices":
+            raise RuntimeError(f"Unexpected response: {response.cmd}")
+        return response.payload.get("items", [])
+
+    def choose_output_on_selected(self) -> None:
+        selected_clients = self._selected_clients()
+        if not selected_clients:
+            messagebox.showwarning("Output", "Wybierz co najmniej jednego klienta")
+            return
+
+        # pobieramy listę z pierwszego klienta jako referencję
+        try:
+            devices = self._fetch_client_output_devices(selected_clients[0])
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Output", f"Nie można pobrać listy wyjść: {exc}")
+            return
+
+        if not devices:
+            messagebox.showwarning("Output", "Brak urządzeń wyjściowych na kliencie")
+            return
+
+        lines = [f"{d['index']}: {d['name']}" for d in devices]
+        choice = simpledialog.askstring(
+            "Wyjście audio klienta",
+            "Wpisz indeks urządzenia z listy:\n\n" + "\n".join(lines) + "\n\nPuste = domyślne",
+        )
+
+        if choice is None:
+            return
+
+        device: int | None
+        value = choice.strip()
+        if value == "":
+            device = None
+        else:
+            try:
+                device = int(value)
+            except ValueError:
+                messagebox.showerror("Output", "Podany indeks nie jest liczbą")
+                return
+
         failures = []
-        for client in self._selected_clients():
+        for client in selected_clients:
             try:
                 self.control.send(
                     client.address,
@@ -385,8 +426,11 @@ class ServerApp:
                 )
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"{client.hello.client_id}: {exc}")
+
         if failures:
             messagebox.showwarning("Output", "Błąd ustawiania wyjścia:\n" + "\n".join(failures))
+        else:
+            messagebox.showinfo("Output", "Ustawiono wyjście audio na wybranych klientach")
 
     def _start_worker(self, target: callable) -> bool:
         with self.worker_lock:

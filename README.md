@@ -20,6 +20,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
 - ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
 - ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
+- ma przycisk wyboru wyjścia audio klienta z listy urządzeń odczytanej z klienta,
 - ma prosty mechanizm parowania (hasło).
 
 ## Wymagania (Windows 11)
@@ -76,6 +77,15 @@ python -m radio_wz.server.server_app --config server-config.json
 ```powershell
 python -m radio_wz.client.client_service --config client-config.json
 ```
+
+
+### Klient (GUI / front)
+
+```powershell
+python -m radio_wz.client.client_gui --config client-config.json
+```
+
+GUI klienta pozwala podejrzeć status i lokalnie zmienić offset / output device.
 
 ## Uruchamianie klienta jako usługa (Windows)
 
