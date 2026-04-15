@@ -18,6 +18,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - streamuje dźwięk z wejścia mikrofonowego do zaznaczonych klientów,
 - skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
+- kolejka nie usuwa automatycznie utworów z listy (przesuwa tylko wskaźnik odtwarzania),
 - ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
 - ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
 - ma przycisk wyboru wyjścia audio klienta z listy urządzeń odczytanej z klienta,
@@ -28,6 +29,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 
 - Python 3.11+
 - FFmpeg w systemie (dla plików MP3 przez `pydub`)
+- Upewnij się, że **ffmpeg i ffprobe** są w PATH (np. `C:\\ffmpeg\\bin`)
 
 ## Instalacja (Windows PowerShell)
 

@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import queue
+import shutil
 import socket
 import threading
 import time
@@ -190,6 +191,7 @@ class ServerApp:
         self.queue_lock = threading.Lock()
         self.displayed_music_tracks: list[Path] = []
         self.displayed_jingle_tracks: list[Path] = []
+        self.queue_position = 0
 
         self.stop_event = threading.Event()
         self.worker_thread: threading.Thread | None = None
@@ -204,6 +206,7 @@ class ServerApp:
         self.root = tk.Tk()
         self.root.title("RadioWęzeł - Serwer")
         self._build_ui()
+        self._warn_if_ffmpeg_missing()
         self._refresh_clients_periodic()
 
     def _build_ui(self) -> None:
@@ -303,6 +306,16 @@ class ServerApp:
         self.scheduler.shutdown(wait=False)
         self.root.destroy()
 
+    def _warn_if_ffmpeg_missing(self) -> None:
+        ffmpeg_ok = shutil.which("ffmpeg") is not None
+        ffprobe_ok = shutil.which("ffprobe") is not None
+        if not ffmpeg_ok or not ffprobe_ok:
+            messagebox.showwarning(
+                "FFmpeg/FFprobe",
+                "Nie wykryto ffmpeg/ffprobe w PATH. MP3 może nie działać.\n"
+                "Zainstaluj FFmpeg i dodaj katalog bin do zmiennej PATH.",
+            )
+
     def apply_runtime_audio_settings(self) -> None:
         try:
             sample_rate = int(self.sample_rate_var.get())
@@ -337,13 +350,19 @@ class ServerApp:
         messagebox.showinfo("Wejścia audio", "\n".join(items) if items else "Brak wejść audio")
 
     def _refresh_clients_once(self) -> None:
-        existing = self.clients_list.curselection()
+        selected_ids: set[str] = set()
+        for idx in self.clients_list.curselection():
+            line = self.clients_list.get(idx)
+            client_id = line.split("|", 1)[0].strip()
+            selected_ids.add(client_id)
+
         self.clients_list.delete(0, tk.END)
         for c in self.registry.get_clients():
             age = int(time.time() - c.last_seen)
-            self.clients_list.insert(tk.END, f"{c.hello.client_id} | {c.hello.client_name} | {c.address} | {age}s")
-        for idx in existing:
-            if idx < self.clients_list.size():
+            row = f"{c.hello.client_id} | {c.hello.client_name} | {c.address} | {age}s"
+            self.clients_list.insert(tk.END, row)
+            if c.hello.client_id in selected_ids:
+                idx = self.clients_list.size() - 1
                 self.clients_list.selection_set(idx)
 
     def _refresh_clients_periodic(self) -> None:
@@ -496,12 +515,22 @@ class ServerApp:
             yield chunk
 
     def start_queue(self) -> None:
+        selected_queue_idx = self.queue_list.curselection()
+        if selected_queue_idx:
+            self.queue_position = selected_queue_idx[0]
+        else:
+            with self.queue_lock:
+                if self.queue_position >= len(self.queue):
+                    self.queue_position = 0
+
         def worker() -> None:
             while not self.stop_event.is_set():
                 with self.queue_lock:
                     if not self.queue:
                         break
-                    track = self.queue[0]
+                    if self.queue_position >= len(self.queue):
+                        break
+                    track = self.queue[self.queue_position]
                 self.root.after(0, lambda t=track: self.now_playing_var.set(f"Teraz odtwarzane: {t.name}"))
                 try:
                     for chunk in self._decode_track_chunks(track):
@@ -512,8 +541,8 @@ class ServerApp:
                 except Exception as exc:  # noqa: BLE001
                     logging.error("Błąd odczytu utworu %s: %s", track, exc)
                 with self.queue_lock:
-                    if self.queue and self.queue[0] == track and not self.stop_event.is_set():
-                        self.queue.pop(0)
+                    if not self.stop_event.is_set():
+                        self.queue_position += 1
                 self.root.after(0, self.refresh_queue_view)
             self.root.after(0, lambda: self.now_playing_var.set("Teraz odtwarzane: -"))
             self.stop_playback()
@@ -606,6 +635,8 @@ class ServerApp:
             return
         with self.queue_lock:
             del self.queue[idx[0]]
+            if self.queue_position >= len(self.queue):
+                self.queue_position = max(0, len(self.queue) - 1)
         self.refresh_queue_view()
 
     def move_up_queue(self) -> None:
@@ -615,6 +646,10 @@ class ServerApp:
         i = idx[0]
         with self.queue_lock:
             self.queue[i - 1], self.queue[i] = self.queue[i], self.queue[i - 1]
+            if self.queue_position == i:
+                self.queue_position = i - 1
+            elif self.queue_position == i - 1:
+                self.queue_position = i
         self.refresh_queue_view()
 
     def move_down_queue(self) -> None:
@@ -626,13 +661,18 @@ class ServerApp:
             if i >= len(self.queue) - 1:
                 return
             self.queue[i + 1], self.queue[i] = self.queue[i], self.queue[i + 1]
+            if self.queue_position == i:
+                self.queue_position = i + 1
+            elif self.queue_position == i + 1:
+                self.queue_position = i
         self.refresh_queue_view()
 
     def refresh_queue_view(self) -> None:
         self.queue_list.delete(0, tk.END)
         with self.queue_lock:
-            for item in self.queue:
-                self.queue_list.insert(tk.END, item.name)
+            for idx, item in enumerate(self.queue):
+                prefix = "▶ " if idx == self.queue_position else "   "
+                self.queue_list.insert(tk.END, f"{prefix}{item.name}")
 
     def _parse_hh_mm(self, value: str) -> tuple[int, int]:
         hour, minute = [int(x) for x in value.split(":")]
