@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import logging
 import queue
@@ -9,6 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import sounddevice as sd
 
@@ -45,15 +47,13 @@ class ClientConfig:
 
 class ClientRuntimeState:
     def __init__(self, config: ClientConfig) -> None:
-        self.config = config
         self.offset_ms = config.offset_ms
         self.output_device = config.output_device
-        self.authenticated = False
         self._lock = threading.Lock()
 
     def set_offset(self, value: int) -> None:
         with self._lock:
-            self.offset_ms = max(0, value)
+            self.offset_ms = max(0, min(8000, value))
 
     def get_offset(self) -> int:
         with self._lock:
@@ -76,8 +76,8 @@ class AudioReceiver:
         self._stop = threading.Event()
 
     def start(self) -> None:
-        threading.Thread(target=self._receive_loop, daemon=True).start()
-        threading.Thread(target=self._playback_loop, daemon=True).start()
+        threading.Thread(target=self._receive_loop, daemon=True, name="audio-recv").start()
+        threading.Thread(target=self._playback_loop, daemon=True, name="audio-play").start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -92,7 +92,17 @@ class AudioReceiver:
                 packet, _addr = sock.recvfrom(65535)
             except socket.timeout:
                 continue
-            _seq, _ts, payload = unpack_audio_packet(packet)
+            except OSError as exc:
+                logging.error("Błąd gniazda UDP: %s", exc)
+                time.sleep(0.5)
+                continue
+
+            try:
+                _seq, _ts, payload = unpack_audio_packet(packet)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning("Pominięto uszkodzony pakiet audio: %s", exc)
+                continue
+
             try:
                 self.buffer.put_nowait(payload)
             except queue.Full:
@@ -116,6 +126,11 @@ class AudioReceiver:
                 except queue.Empty:
                     outdata[:] = b"\x00" * (frames * bytes_per_frame)
                     return
+                if len(raw) != frames * bytes_per_frame:
+                    if len(raw) < frames * bytes_per_frame:
+                        raw = raw + (b"\x00" * ((frames * bytes_per_frame) - len(raw)))
+                    else:
+                        raw = raw[: frames * bytes_per_frame]
                 outdata[:] = raw
 
             try:
@@ -128,7 +143,7 @@ class AudioReceiver:
                     callback=callback,
                 ):
                     while not self._stop.is_set():
-                        time.sleep(0.2)
+                        time.sleep(0.25)
             except sd.PortAudioError as exc:
                 logging.error("Błąd urządzenia audio: %s", exc)
                 time.sleep(2)
@@ -140,38 +155,59 @@ class ControlServer:
         self.state = state
 
     def start(self) -> None:
-        threading.Thread(target=self._serve_loop, daemon=True).start()
+        threading.Thread(target=self._serve_loop, daemon=True, name="control-server").start()
 
     def _serve_loop(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", self.config.control_port))
-        sock.listen(8)
+        sock.listen(16)
 
         while True:
-            conn, _addr = sock.accept()
-            threading.Thread(target=self._handle_connection, args=(conn,), daemon=True).start()
+            conn, addr = sock.accept()
+            conn.settimeout(8)
+            threading.Thread(target=self._handle_connection, args=(conn, addr[0]), daemon=True).start()
 
-    def _handle_connection(self, conn: socket.socket) -> None:
+    def _handle_connection(self, conn: socket.socket, host: str) -> None:
+        paired = False
         with conn:
             file = conn.makefile("rwb")
             for line in file:
-                msg = ControlMessage.from_line(line)
+                try:
+                    msg = ControlMessage.from_line(line)
+                except Exception:
+                    self._safe_send(file, ControlMessage("error", {"message": "invalid_json"}))
+                    continue
+
+                if msg.cmd == "pair":
+                    supplied = str(msg.payload.get("password", ""))
+                    ok = hmac.compare_digest(supplied, self.config.pairing_password)
+                    paired = ok
+                    self._safe_send(file, ControlMessage("pair_result", {"ok": ok}))
+                    logging.info("Pair from %s -> %s", host, ok)
+                    continue
+
+                if not paired:
+                    self._safe_send(file, ControlMessage("error", {"message": "not_paired"}))
+                    continue
+
                 response = self._dispatch(msg)
-                file.write(response.to_line())
-                file.flush()
+                self._safe_send(file, response)
+
+    def _safe_send(self, file: Any, message: ControlMessage) -> None:
+        try:
+            file.write(message.to_line())
+            file.flush()
+        except OSError:
+            return
 
     def _dispatch(self, msg: ControlMessage) -> ControlMessage:
-        if msg.cmd == "pair":
-            ok = msg.payload.get("password") == self.config.pairing_password
-            self.state.authenticated = ok
-            return ControlMessage("pair_result", {"ok": ok})
-
-        if not self.state.authenticated:
-            return ControlMessage("error", {"message": "not_paired"})
-
         if msg.cmd == "set_offset_ms":
-            self.state.set_offset(int(msg.payload["value"]))
+            try:
+                value = int(msg.payload["value"])
+            except (KeyError, ValueError, TypeError):
+                return ControlMessage("error", {"message": "invalid_offset"})
+            self.state.set_offset(value)
             return ControlMessage("ok", {"offset_ms": self.state.get_offset()})
 
         if msg.cmd == "list_output_devices":
@@ -183,7 +219,11 @@ class ControlServer:
 
         if msg.cmd == "set_output_device":
             value = msg.payload.get("value")
-            self.state.set_output_device(int(value) if value is not None else None)
+            try:
+                device = int(value) if value is not None else None
+            except (ValueError, TypeError):
+                return ControlMessage("error", {"message": "invalid_output_device"})
+            self.state.set_output_device(device)
             return ControlMessage("ok", {"output_device": self.state.get_output_device()})
 
         if msg.cmd == "status":
@@ -205,7 +245,7 @@ class ClientAnnouncer:
         self._stop = threading.Event()
 
     def start(self) -> None:
-        threading.Thread(target=self._announce_loop, daemon=True).start()
+        threading.Thread(target=self._announce_loop, daemon=True, name="announce").start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -219,7 +259,10 @@ class ClientAnnouncer:
                 audio_port=self.config.audio_port,
                 control_port=self.config.control_port,
             ).to_bytes()
-            sock.sendto(hello, ("255.255.255.255", self.config.discovery_port))
+            try:
+                sock.sendto(hello, ("255.255.255.255", self.config.discovery_port))
+            except OSError as exc:
+                logging.warning("Discovery broadcast failed: %s", exc)
             time.sleep(2)
 
 

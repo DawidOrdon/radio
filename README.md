@@ -68,3 +68,15 @@ Wtedy klient działa po starcie systemu bez aktywnej sesji RDP.
 - Zalecany osobny VLAN dla radiowęzła.
 - Ustaw stałe IP serwera/klientów lub DHCP reservation.
 - Sprawdź zaporę Windows (porty UDP 42500/42510 i TCP 42520).
+
+
+## Stabilność i bezpieczeństwo (v0.3)
+
+- per-połączenie parowania klienta (brak globalnej autoryzacji),
+- porównanie hasła przez `hmac.compare_digest`,
+- walidacja komend sterujących i parametrów,
+- ochrona przed wielokrotnym uruchomieniem nadawania,
+- bezpieczne zamykanie wątków i czyszczenie kolejki pakietów,
+- timeouty i obsługa błędów sieci/audio,
+- walidacja czasu harmonogramu,
+- automatyczne usuwanie nieaktywnych klientów.
