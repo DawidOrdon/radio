@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import audioop
 import datetime as dt
 import json
 import logging
@@ -247,7 +248,7 @@ class ServerApp:
         ttk.Entry(top, textvariable=self.offset_seconds_var, width=7).pack(side="left", padx=6)
         ttk.Button(top, text="Ustaw offset na klientach", command=self.push_offset).pack(side="left", padx=6)
 
-        ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
+        ttk.Button(top, text="Start transmisji", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
         self.manual_stop_time_var = tk.StringVar(value="08:05")
         ttk.Entry(top, textvariable=self.manual_stop_time_var, width=6).pack(side="left", padx=(8, 2))
@@ -540,18 +541,9 @@ class ServerApp:
             return True
 
     def _mix_pcm16(self, a: bytes, b: bytes) -> bytes:
-        # miks 16-bit PCM little-endian z saturacją
-        out = bytearray(min(len(a), len(b)))
-        for i in range(0, len(out), 2):
-            sa = int.from_bytes(a[i : i + 2], "little", signed=True)
-            sb = int.from_bytes(b[i : i + 2], "little", signed=True)
-            mixed = sa + sb
-            if mixed > 32767:
-                mixed = 32767
-            elif mixed < -32768:
-                mixed = -32768
-            out[i : i + 2] = int(mixed).to_bytes(2, "little", signed=True)
-        return bytes(out)
+        # szybszy miks w C (audioop) - mniej CPU i mniej przycięć
+        size = min(len(a), len(b))
+        return audioop.add(a[:size], b[:size], 2)
 
     def _mix_with_live_mic(self, music_chunk: bytes) -> bytes:
         with self.mic_chunk_lock:
