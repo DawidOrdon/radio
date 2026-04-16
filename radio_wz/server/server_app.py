@@ -163,6 +163,13 @@ class AudioBroadcaster:
             _ = self.packet_queue.get_nowait()
             self.packet_queue.put_nowait(packet)
 
+    def clear_pending_packets(self) -> None:
+        while not self.packet_queue.empty():
+            try:
+                self.packet_queue.get_nowait()
+            except queue.Empty:
+                break
+
     def _sender_loop(self) -> None:
         while self.running.is_set():
             try:
@@ -512,6 +519,8 @@ class ServerApp:
             def callback(indata, _frames, _time_info, status):
                 if status:
                     logging.warning("Input status: %s", status)
+                if self.pause_event.is_set():
+                    return
                 self.broadcaster.enqueue_pcm(bytes(indata))
 
             try:
@@ -593,6 +602,7 @@ class ServerApp:
 
     def pause_playback(self) -> None:
         self.pause_event.set()
+        self.broadcaster.clear_pending_packets()
         self.stream_state_var.set("Stan streamu: PAUZA")
 
     def resume_playback(self) -> None:
