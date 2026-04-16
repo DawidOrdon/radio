@@ -149,7 +149,8 @@ class AudioReceiver:
                     raw = self.buffer.get_nowait()
                     self._last_good_payload = raw
                 except queue.Empty:
-                    if self._last_good_payload is not None:
+                    last_ts, _rms = self.state.get_audio_status()
+                    if self._last_good_payload is not None and (time.time() - last_ts) < 0.15:
                         raw = self._last_good_payload
                     else:
                         outdata[:] = b"\x00" * (frames * bytes_per_frame)
