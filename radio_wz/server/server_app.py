@@ -207,6 +207,8 @@ class ServerApp:
         self.schedule_job_ids: list[str] = []
 
         self._refresh_loop_enabled = True
+        self._client_vars: dict[str, tk.BooleanVar] = {}
+        self._client_states_by_id: dict[str, ClientState] = {}
 
         self.root = tk.Tk()
         self.root.title("RadioWęzeł - Serwer")
@@ -265,8 +267,19 @@ class ServerApp:
         center.add(right, weight=1)
 
         ttk.Label(left, text="Klienci").pack(anchor="w")
-        self.clients_list = tk.Listbox(left, selectmode=tk.MULTIPLE, height=18)
-        self.clients_list.pack(fill="x")
+        self.clients_container = ttk.Frame(left)
+        self.clients_container.pack(fill="both", expand=True)
+        self.clients_canvas = tk.Canvas(self.clients_container, height=320)
+        self.clients_scrollbar = ttk.Scrollbar(self.clients_container, orient="vertical", command=self.clients_canvas.yview)
+        self.clients_inner = ttk.Frame(self.clients_canvas)
+        self.clients_inner.bind(
+            "<Configure>",
+            lambda _e: self.clients_canvas.configure(scrollregion=self.clients_canvas.bbox("all")),
+        )
+        self.clients_canvas.create_window((0, 0), window=self.clients_inner, anchor="nw")
+        self.clients_canvas.configure(yscrollcommand=self.clients_scrollbar.set)
+        self.clients_canvas.pack(side="left", fill="both", expand=True)
+        self.clients_scrollbar.pack(side="right", fill="y")
         ttk.Button(left, text="Odśwież klientów", command=self._refresh_clients_once).pack(anchor="w", pady=4)
         ttk.Button(left, text="Wybierz wyjście audio klienta", command=self.choose_output_on_selected).pack(anchor="w", pady=4)
 
@@ -360,20 +373,23 @@ class ServerApp:
         messagebox.showinfo("Wejścia audio", "\n".join(items) if items else "Brak wejść audio")
 
     def _refresh_clients_once(self) -> None:
-        selected_ids: set[str] = set()
-        for idx in self.clients_list.curselection():
-            line = self.clients_list.get(idx)
-            client_id = line.split("|", 1)[0].strip()
-            selected_ids.add(client_id)
+        current_selection = {cid for cid, var in self._client_vars.items() if var.get()}
+        self._client_states_by_id = {c.hello.client_id: c for c in self.registry.get_clients()}
 
-        self.clients_list.delete(0, tk.END)
-        for c in self.registry.get_clients():
+        for child in self.clients_inner.winfo_children():
+            child.destroy()
+
+        new_vars: dict[str, tk.BooleanVar] = {}
+        for client_id, c in self._client_states_by_id.items():
             age = int(time.time() - c.last_seen)
-            row = f"{c.hello.client_id} | {c.hello.client_name} | {c.address} | {age}s"
-            self.clients_list.insert(tk.END, row)
-            if c.hello.client_id in selected_ids:
-                idx = self.clients_list.size() - 1
-                self.clients_list.selection_set(idx)
+            checked = client_id in current_selection
+            var = tk.BooleanVar(value=checked)
+            text = f"{c.hello.client_id} | {c.hello.client_name} | {c.address} | {age}s"
+            cb = ttk.Checkbutton(self.clients_inner, text=text, variable=var)
+            cb.pack(anchor="w", fill="x", padx=2, pady=1)
+            new_vars[client_id] = var
+
+        self._client_vars = new_vars
 
     def _refresh_clients_periodic(self) -> None:
         self._refresh_clients_once()
@@ -381,11 +397,12 @@ class ServerApp:
             self.root.after(2000, self._refresh_clients_periodic)
 
     def _selected_clients(self) -> list[ClientState]:
-        clients = self.registry.get_clients()
         selected = []
-        for idx in self.clients_list.curselection():
-            if idx < len(clients):
-                selected.append(clients[idx])
+        for client_id, var in self._client_vars.items():
+            if var.get():
+                state = self._client_states_by_id.get(client_id)
+                if state is not None:
+                    selected.append(state)
         return selected
 
     def _current_destinations(self) -> list[tuple[str, int]]:
