@@ -196,8 +196,11 @@ class ServerApp:
         self.queue_position = 0
 
         self.stop_event = threading.Event()
+        self.pause_event = threading.Event()
         self.worker_thread: threading.Thread | None = None
         self.worker_lock = threading.Lock()
+        self.current_track: Path | None = None
+        self.current_track_byte_pos = 0
 
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
@@ -225,6 +228,8 @@ class ServerApp:
 
         ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
+        ttk.Button(top, text="Pauza", command=self.pause_playback).pack(side="left", padx=4)
+        ttk.Button(top, text="Wznów", command=self.resume_playback).pack(side="left", padx=4)
         ttk.Button(top, text="Stop nadawania", command=self.stop_playback).pack(side="left", padx=6)
         ttk.Button(top, text="Test ton 1kHz", command=self.play_test_tone_to_clients).pack(side="left", padx=6)
         self.now_playing_var = tk.StringVar(value="Teraz odtwarzane: -")
@@ -472,6 +477,7 @@ class ServerApp:
                 messagebox.showwarning("Nadawanie", "Nadawanie już jest uruchomione. Najpierw kliknij Stop.")
                 return False
             self.stop_event.clear()
+            self.pause_event.clear()
             destinations = self._current_destinations()
             self.broadcaster.set_destinations(destinations)
             if not destinations:
@@ -501,6 +507,8 @@ class ServerApp:
                     callback=callback,
                 ):
                     while not self.stop_event.is_set():
+                        while self.pause_event.is_set() and not self.stop_event.is_set():
+                            time.sleep(0.05)
                         time.sleep(0.2)
             except sd.PortAudioError as exc:
                 logging.error("Mikrofon/interfejs niedostępny: %s", exc)
@@ -509,12 +517,13 @@ class ServerApp:
 
         self._start_worker(worker)
 
-    def _decode_track_chunks(self, path: Path):
+    def _decode_track_chunks(self, path: Path, start_byte: int = 0):
         segment = AudioSegment.from_file(path)
         segment = segment.set_channels(self.config.channels).set_frame_rate(self.config.sample_rate).set_sample_width(2)
         raw = segment.raw_data
         chunk_size = self.config.blocksize * self.config.channels * 2
-        for i in range(0, len(raw), chunk_size):
+        safe_start = max(0, min(start_byte, len(raw)))
+        for i in range(safe_start, len(raw), chunk_size):
             chunk = raw[i : i + chunk_size]
             if len(chunk) < chunk_size:
                 chunk += b"\x00" * (chunk_size - len(chunk))
@@ -537,28 +546,50 @@ class ServerApp:
                     if self.queue_position >= len(self.queue):
                         break
                     track = self.queue[self.queue_position]
+                if self.current_track != track:
+                    self.current_track = track
+                    self.current_track_byte_pos = 0
                 self.root.after(0, lambda t=track: self.now_playing_var.set(f"Teraz odtwarzane: {t.name}"))
                 try:
-                    for chunk in self._decode_track_chunks(track):
+                    for chunk in self._decode_track_chunks(track, start_byte=self.current_track_byte_pos):
+                        if self.stop_event.is_set():
+                            break
+                        while self.pause_event.is_set() and not self.stop_event.is_set():
+                            time.sleep(0.05)
                         if self.stop_event.is_set():
                             break
                         self.broadcaster.enqueue_pcm(chunk)
                         time.sleep(self.config.blocksize / self.config.sample_rate)
+                        self.current_track_byte_pos += len(chunk)
                 except Exception as exc:  # noqa: BLE001
                     logging.error("Błąd odczytu utworu %s: %s", track, exc)
                 with self.queue_lock:
-                    if not self.stop_event.is_set():
+                    if not self.stop_event.is_set() and not self.pause_event.is_set():
                         self.queue_position += 1
+                        self.current_track = None
+                        self.current_track_byte_pos = 0
                 self.root.after(0, self.refresh_queue_view)
             self.root.after(0, lambda: self.now_playing_var.set("Teraz odtwarzane: -"))
             self.stop_playback()
 
         self._start_worker(worker)
 
+    def pause_playback(self) -> None:
+        self.pause_event.set()
+        self.stream_state_var.set("Stan streamu: PAUZA")
+
+    def resume_playback(self) -> None:
+        self.pause_event.clear()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.stream_state_var.set("Stan streamu: START")
+
     def stop_playback(self) -> None:
         self.stop_event.set()
+        self.pause_event.clear()
         self.broadcaster.stop()
         self.stream_state_var.set("Stan streamu: STOP")
+        self.current_track = None
+        self.current_track_byte_pos = 0
         with self.worker_lock:
             if self.worker_thread and self.worker_thread.is_alive() and threading.current_thread() != self.worker_thread:
                 self.worker_thread.join(timeout=1)
