@@ -201,6 +201,7 @@ class ServerApp:
         self.displayed_music_tracks: list[Path] = []
         self.displayed_jingle_tracks: list[Path] = []
         self.queue_position = 0
+        self.queue_presets: dict[str, list[Path]] = {}
 
         self.stop_event = threading.Event()
         self.pause_event = threading.Event()
@@ -220,6 +221,7 @@ class ServerApp:
         self.root = tk.Tk()
         self.root.title("RadioWęzeł - Serwer")
         self._build_ui()
+        self._refresh_preset_controls()
         self._warn_if_ffmpeg_missing()
         self._refresh_clients_periodic()
 
@@ -315,6 +317,12 @@ class ServerApp:
         ttk.Button(right, text="Usuń z kolejki", command=self.remove_from_queue).pack(anchor="w", pady=4)
         ttk.Button(right, text="Przesuń wyżej", command=self.move_up_queue).pack(anchor="w")
         ttk.Button(right, text="Przesuń niżej", command=self.move_down_queue).pack(anchor="w")
+        self.preset_name_var = tk.StringVar(value="Przerwa1")
+        ttk.Entry(right, textvariable=self.preset_name_var).pack(fill="x", pady=(8, 4))
+        ttk.Button(right, text="Zapisz kolejkę jako preset", command=self.save_queue_preset).pack(anchor="w", pady=2)
+        self.preset_combo = ttk.Combobox(right, state="readonly")
+        self.preset_combo.pack(fill="x", pady=(4, 2))
+        ttk.Button(right, text="Wczytaj preset kolejki", command=self.apply_selected_preset).pack(anchor="w", pady=2)
 
         sched = ttk.LabelFrame(self.root, text="Automatyka kolejki (wiele przerw)")
         sched.pack(fill="x", padx=8, pady=8)
@@ -324,6 +332,10 @@ class ServerApp:
         ttk.Label(sched, text="Stop HH:MM").pack(side="left", padx=4)
         self.stop_time_var = tk.StringVar(value="08:05")
         ttk.Entry(sched, textvariable=self.stop_time_var, width=8).pack(side="left")
+        ttk.Label(sched, text="Preset:").pack(side="left", padx=4)
+        self.schedule_preset_var = tk.StringVar(value="")
+        self.schedule_preset_combo = ttk.Combobox(sched, textvariable=self.schedule_preset_var, state="readonly", width=18)
+        self.schedule_preset_combo.pack(side="left")
         ttk.Button(sched, text="Dodaj przedział", command=self.add_schedule_interval).pack(side="left", padx=8)
         ttk.Button(sched, text="Wyczyść harmonogram", command=self.clear_schedule).pack(side="left", padx=8)
 
@@ -739,6 +751,45 @@ class ServerApp:
                 prefix = "▶ " if idx == self.queue_position else "   "
                 self.queue_list.insert(tk.END, f"{prefix}{item.name}")
 
+    def save_queue_preset(self) -> None:
+        name = self.preset_name_var.get().strip()
+        if not name:
+            messagebox.showerror("Preset", "Podaj nazwę presetu")
+            return
+        with self.queue_lock:
+            self.queue_presets[name] = list(self.queue)
+        self._refresh_preset_controls(selected=name)
+        messagebox.showinfo("Preset", f"Zapisano preset: {name}")
+
+    def _refresh_preset_controls(self, selected: str | None = None) -> None:
+        names = sorted(self.queue_presets.keys())
+        self.preset_combo["values"] = names
+        self.schedule_preset_combo["values"] = names
+        if selected and selected in names:
+            self.preset_combo.set(selected)
+            self.schedule_preset_combo.set(selected)
+        elif names and not self.preset_combo.get():
+            self.preset_combo.set(names[0])
+        elif not names:
+            self.preset_combo.set("")
+            self.schedule_preset_combo.set("")
+
+    def apply_selected_preset(self) -> None:
+        name = self.preset_combo.get().strip()
+        if not name:
+            messagebox.showwarning("Preset", "Wybierz preset")
+            return
+        preset = self.queue_presets.get(name)
+        if preset is None:
+            messagebox.showerror("Preset", "Preset nie istnieje")
+            return
+        with self.queue_lock:
+            self.queue = list(preset)
+            self.queue_position = 0
+            self.current_track = None
+            self.current_track_byte_pos = 0
+        self.refresh_queue_view()
+
     def _parse_hh_mm(self, value: str) -> tuple[int, int]:
         hour, minute = [int(x) for x in value.split(":")]
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
@@ -752,14 +803,35 @@ class ServerApp:
         except ValueError:
             messagebox.showerror("Harmonogram", "Błędny format czasu. Użyj HH:MM")
             return
+        preset_name = self.schedule_preset_combo.get().strip()
+        if preset_name and preset_name not in self.queue_presets:
+            messagebox.showerror("Harmonogram", "Wybrany preset nie istnieje")
+            return
 
         start_id = f"start-{start_h:02d}{start_m:02d}-{time.time_ns()}"
         stop_id = f"stop-{stop_h:02d}{stop_m:02d}-{time.time_ns()}"
 
-        self.scheduler.add_job(self.start_queue, "cron", hour=start_h, minute=start_m, id=start_id)
-        self.scheduler.add_job(self.stop_playback, "cron", hour=stop_h, minute=stop_m, id=stop_id)
+        self.scheduler.add_job(self.start_scheduled_break, "cron", hour=start_h, minute=start_m, id=start_id, args=[preset_name])
+        self.scheduler.add_job(self.pause_playback, "cron", hour=stop_h, minute=stop_m, id=stop_id)
         self.schedule_job_ids.extend([start_id, stop_id])
-        self.schedule_list.insert(tk.END, f"START {start_h:02d}:{start_m:02d} | STOP {stop_h:02d}:{stop_m:02d}")
+        preset_label = preset_name if preset_name else "(bieżąca kolejka)"
+        self.schedule_list.insert(tk.END, f"START {start_h:02d}:{start_m:02d} | STOP {stop_h:02d}:{stop_m:02d} | {preset_label}")
+
+    def start_scheduled_break(self, preset_name: str) -> None:
+        if preset_name:
+            preset = self.queue_presets.get(preset_name)
+            if preset is not None:
+                with self.queue_lock:
+                    self.queue = list(preset)
+                    self.queue_position = 0
+                    self.current_track = None
+                    self.current_track_byte_pos = 0
+                self.root.after(0, self.refresh_queue_view)
+
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.resume_playback()
+        else:
+            self.root.after(0, self.start_queue)
 
     def play_test_tone_to_clients(self) -> None:
         destinations = self._current_destinations()

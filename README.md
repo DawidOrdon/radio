@@ -21,6 +21,8 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - ma Pauza/Wznów dla kolejki: po wznowieniu utwór leci od miejsca pauzy,
 - kolejka nie usuwa automatycznie utworów z listy (przesuwa tylko wskaźnik odtwarzania),
 - ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
+- pozwala zapisać kilka presetów kolejek i przypisać konkretną kolejkę do konkretnej godziny/przerwy,
+- harmonogram na koniec przerwy robi pauzę, a na kolejnej przerwie może wznowić/uruchomić odpowiedni preset,
 - ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
 - ma przycisk wyboru wyjścia audio klienta z listy urządzeń odczytanej z klienta,
 - ma wyszukiwarkę utworów i dźingli w panelu serwera (ułatwienie dla dużych bibliotek),
