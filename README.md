@@ -123,3 +123,13 @@ Otwórz porty:
 - harmonogram pozwala dodawać wiele przedziałów START/STOP (np. kilka przerw),
 - parametry audio (`sample_rate`, `channels`, `blocksize`, `mic_input_device`) zmieniasz z poziomu GUI bez edycji pliku konfiguracyjnego,
 - tryb mikrofonu działa jako pass-through: serwer nie przetwarza sygnału, tylko przekazuje wejście audio do klientów.
+
+
+## Tuning przy przerywaniu dźwięku
+
+Jeśli dźwięk przerywa, zwiększ w `client-config.json`:
+- `offset_ms` (np. 2500-4000),
+- `jitter_target_packets` (np. 120-180),
+- ewentualnie `blocksize` (np. 960 -> 1440).
+
+Dodatkowo upewnij się, że sieć LAN nie jest przeciążona i że urządzenie audio klienta działa z tym samym `sample_rate` i `channels` co serwer.

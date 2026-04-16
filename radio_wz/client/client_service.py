@@ -38,6 +38,7 @@ class ClientConfig:
     channels: int = 1
     blocksize: int = 960
     offset_ms: int = 2000
+    jitter_target_packets: int = 100
     output_device: int | None = None
 
     @classmethod
@@ -86,6 +87,7 @@ class AudioReceiver:
         self.state = state
         self.buffer: "queue.Queue[bytes]" = queue.Queue(maxsize=2000)
         self._stop = threading.Event()
+        self._last_good_payload: bytes | None = None
 
     def start(self) -> None:
         threading.Thread(target=self._receive_loop, daemon=True, name="audio-recv").start()
@@ -96,6 +98,7 @@ class AudioReceiver:
 
     def _receive_loop(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2 * 1024 * 1024)
         sock.bind(("0.0.0.0", self.config.audio_port))
         sock.settimeout(1.0)
 
@@ -131,7 +134,11 @@ class AudioReceiver:
 
         while not self._stop.is_set():
             offset_frames = int((self.state.get_offset() / 1000) * self.config.sample_rate)
-            min_prefill_packets = max(1, offset_frames // self.config.blocksize)
+            min_prefill_packets = max(
+                1,
+                offset_frames // self.config.blocksize,
+                self.config.jitter_target_packets,
+            )
             while self.buffer.qsize() < min_prefill_packets and not self._stop.is_set():
                 time.sleep(0.05)
 
@@ -140,7 +147,14 @@ class AudioReceiver:
                     logging.warning("Audio callback status: %s", status)
                 try:
                     raw = self.buffer.get_nowait()
+                    self._last_good_payload = raw
                 except queue.Empty:
+                    if self._last_good_payload is not None:
+                        raw = self._last_good_payload
+                    else:
+                        outdata[:] = b"\x00" * (frames * bytes_per_frame)
+                        return
+                if raw is None:
                     outdata[:] = b"\x00" * (frames * bytes_per_frame)
                     return
                 if len(raw) != frames * bytes_per_frame:

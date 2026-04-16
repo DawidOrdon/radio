@@ -9,5 +9,6 @@
   "channels": 1,
   "blocksize": 960,
   "offset_ms": 2000,
-  "output_device": null
+  "output_device": null,
+  "jitter_target_packets": 100
 }
