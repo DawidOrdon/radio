@@ -20,6 +20,9 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
 - ma Pauza/Wznów dla kolejki: po wznowieniu utwór leci od miejsca pauzy,
+- można uruchomić kolejkę ręcznie z automatyczną pauzą o wskazanej godzinie (Start do godziny),
+- mikrofon (wejście z interfejsu) jest miksowany z kolejką, więc działa cały czas także podczas muzyki,
+- offset wpływa na harmonogram: start kolejki następuje po czasie `offset` (np. 12:14 + 10s).
 - kolejka nie usuwa automatycznie utworów z listy (przesuwa tylko wskaźnik odtwarzania),
 - ma automatyczne uruchamianie i zatrzymywanie kolejki wg wielu przedziałów harmonogramu,
 - pozwala zapisać kilka presetów kolejek i przypisać konkretną kolejkę do konkretnej godziny/przerwy,

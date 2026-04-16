@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import logging
 import math
@@ -214,6 +215,10 @@ class ServerApp:
         self.worker_lock = threading.Lock()
         self.current_track: Path | None = None
         self.current_track_byte_pos = 0
+        self.latest_mic_chunk: bytes | None = None
+        self.mic_chunk_lock = threading.Lock()
+        self.mic_monitor_running = threading.Event()
+        self.mic_monitor_thread: threading.Thread | None = None
 
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
@@ -244,6 +249,9 @@ class ServerApp:
 
         ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
+        self.manual_stop_time_var = tk.StringVar(value="08:05")
+        ttk.Entry(top, textvariable=self.manual_stop_time_var, width=6).pack(side="left", padx=(8, 2))
+        ttk.Button(top, text="Start do godziny", command=self.start_queue_until_time).pack(side="left", padx=2)
         ttk.Button(top, text="Pauza", command=self.pause_playback).pack(side="left", padx=4)
         ttk.Button(top, text="Wznów", command=self.resume_playback).pack(side="left", padx=4)
         ttk.Button(top, text="Stop nadawania", command=self.stop_playback).pack(side="left", padx=6)
@@ -350,6 +358,7 @@ class ServerApp:
     def _on_close(self) -> None:
         self._refresh_loop_enabled = False
         self.stop_playback()
+        self.mic_monitor_running.clear()
         self.scheduler.shutdown(wait=False)
         self.root.destroy()
 
@@ -530,6 +539,63 @@ class ServerApp:
             self.stream_state_var.set("Stan streamu: START")
             return True
 
+    def _mix_pcm16(self, a: bytes, b: bytes) -> bytes:
+        # miks 16-bit PCM little-endian z saturacją
+        out = bytearray(min(len(a), len(b)))
+        for i in range(0, len(out), 2):
+            sa = int.from_bytes(a[i : i + 2], "little", signed=True)
+            sb = int.from_bytes(b[i : i + 2], "little", signed=True)
+            mixed = sa + sb
+            if mixed > 32767:
+                mixed = 32767
+            elif mixed < -32768:
+                mixed = -32768
+            out[i : i + 2] = int(mixed).to_bytes(2, "little", signed=True)
+        return bytes(out)
+
+    def _mix_with_live_mic(self, music_chunk: bytes) -> bytes:
+        with self.mic_chunk_lock:
+            mic = self.latest_mic_chunk
+        if not mic:
+            return music_chunk
+        if len(mic) != len(music_chunk):
+            if len(mic) < len(music_chunk):
+                mic = mic + (b"\x00" * (len(music_chunk) - len(mic)))
+            else:
+                mic = mic[: len(music_chunk)]
+        return self._mix_pcm16(music_chunk, mic)
+
+    def _start_mic_monitor_if_needed(self) -> None:
+        if self.mic_monitor_thread and self.mic_monitor_thread.is_alive():
+            return
+        self.mic_monitor_running.set()
+
+        def worker() -> None:
+            def callback(indata, _frames, _time_info, status):
+                if status:
+                    logging.warning("Mic monitor status: %s", status)
+                with self.mic_chunk_lock:
+                    self.latest_mic_chunk = bytes(indata)
+
+            while self.mic_monitor_running.is_set():
+                try:
+                    with sd.RawInputStream(
+                        samplerate=self.config.sample_rate,
+                        blocksize=self.config.blocksize,
+                        channels=self.config.channels,
+                        dtype="int16",
+                        device=self.config.mic_input_device,
+                        callback=callback,
+                    ):
+                        while self.mic_monitor_running.is_set():
+                            time.sleep(0.2)
+                except sd.PortAudioError as exc:
+                    logging.error("Mic monitor niedostępny: %s", exc)
+                    time.sleep(1)
+
+        self.mic_monitor_thread = threading.Thread(target=worker, daemon=True)
+        self.mic_monitor_thread.start()
+
     def start_microphone(self) -> None:
         # Pass-through: to, co jest na wejściu z interfejsu audio, wysyłane jest bezpośrednio do klientów.
         def worker() -> None:
@@ -573,6 +639,7 @@ class ServerApp:
             yield chunk
 
     def start_queue(self) -> None:
+        self._start_mic_monitor_if_needed()
         selected_queue_idx = self.queue_list.curselection()
         if selected_queue_idx:
             self.queue_position = selected_queue_idx[0]
@@ -601,7 +668,8 @@ class ServerApp:
                             time.sleep(0.05)
                         if self.stop_event.is_set():
                             break
-                        self.broadcaster.enqueue_pcm(chunk)
+                        mixed_chunk = self._mix_with_live_mic(chunk)
+                        self.broadcaster.enqueue_pcm(mixed_chunk)
                         time.sleep(self.config.blocksize / self.config.sample_rate)
                         self.current_track_byte_pos += len(chunk)
                 except Exception as exc:  # noqa: BLE001
@@ -623,6 +691,24 @@ class ServerApp:
         payload_size = self.config.blocksize * self.config.channels * 2
         self.broadcaster.enqueue_silence_packets(payload_size=payload_size, count=8)
         self.stream_state_var.set("Stan streamu: PAUZA")
+
+    def start_queue_until_time(self) -> None:
+        raw = self.manual_stop_time_var.get().strip()
+        try:
+            hour, minute = self._parse_hh_mm(raw)
+        except ValueError:
+            messagebox.showerror("Manual stop", "Podaj czas HH:MM")
+            return
+
+        now = dt.datetime.now()
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now:
+            target = target + dt.timedelta(days=1)
+
+        stop_job_id = f"manual-stop-{time.time_ns()}"
+        self.scheduler.add_job(self.pause_playback, "date", run_date=target, id=stop_job_id)
+        self.start_queue()
+        messagebox.showinfo("Manual stop", f"Kolejka wystartowała. Pauza o {target.strftime('%H:%M:%S')}")
 
     def resume_playback(self) -> None:
         self.pause_event.clear()
@@ -835,10 +921,17 @@ class ServerApp:
                     self.current_track_byte_pos = 0
                 self.root.after(0, self.refresh_queue_view)
 
-        if self.worker_thread and self.worker_thread.is_alive():
-            self.resume_playback()
+        def do_start() -> None:
+            if self.worker_thread and self.worker_thread.is_alive():
+                self.resume_playback()
+            else:
+                self.start_queue()
+
+        delay_ms = max(0, int(self.config.global_offset_ms))
+        if delay_ms > 0:
+            self.root.after(delay_ms, do_start)
         else:
-            self.root.after(0, self.start_queue)
+            self.root.after(0, do_start)
 
     def play_test_tone_to_clients(self) -> None:
         destinations = self._current_destinations()
