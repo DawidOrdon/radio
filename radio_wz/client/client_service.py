@@ -133,39 +133,39 @@ class AudioReceiver:
         bytes_per_frame = self.config.channels * 2
 
         while not self._stop.is_set():
-            offset_frames = int((self.state.get_offset() / 1000) * self.config.sample_rate)
-            min_prefill_packets = max(
-                1,
-                offset_frames // self.config.blocksize,
-                self.config.jitter_target_packets,
-            )
-            while self.buffer.qsize() < min_prefill_packets and not self._stop.is_set():
-                time.sleep(0.05)
+            try:
+                offset_frames = int((self.state.get_offset() / 1000) * self.config.sample_rate)
+                min_prefill_packets = max(
+                    1,
+                    offset_frames // self.config.blocksize,
+                    self.config.jitter_target_packets,
+                )
+                while self.buffer.qsize() < min_prefill_packets and not self._stop.is_set():
+                    time.sleep(0.05)
 
-            def callback(outdata, frames, _time_info, status):
-                if status:
-                    logging.warning("Audio callback status: %s", status)
-                try:
-                    raw = self.buffer.get_nowait()
-                    self._last_good_payload = raw
-                except queue.Empty:
-                    last_ts, _rms = self.state.get_audio_status()
-                    if self._last_good_payload is not None and (time.time() - last_ts) < 0.15:
-                        raw = self._last_good_payload
-                    else:
+                def callback(outdata, frames, _time_info, status):
+                    if status:
+                        logging.warning("Audio callback status: %s", status)
+                    try:
+                        raw = self.buffer.get_nowait()
+                        self._last_good_payload = raw
+                    except queue.Empty:
+                        last_ts, _rms = self.state.get_audio_status()
+                        if self._last_good_payload is not None and (time.time() - last_ts) < 0.15:
+                            raw = self._last_good_payload
+                        else:
+                            outdata[:] = b"\x00" * (frames * bytes_per_frame)
+                            return
+                    if raw is None:
                         outdata[:] = b"\x00" * (frames * bytes_per_frame)
                         return
-                if raw is None:
-                    outdata[:] = b"\x00" * (frames * bytes_per_frame)
-                    return
-                if len(raw) != frames * bytes_per_frame:
-                    if len(raw) < frames * bytes_per_frame:
-                        raw = raw + (b"\x00" * ((frames * bytes_per_frame) - len(raw)))
-                    else:
-                        raw = raw[: frames * bytes_per_frame]
-                outdata[:] = raw
+                    if len(raw) != frames * bytes_per_frame:
+                        if len(raw) < frames * bytes_per_frame:
+                            raw = raw + (b"\x00" * ((frames * bytes_per_frame) - len(raw)))
+                        else:
+                            raw = raw[: frames * bytes_per_frame]
+                    outdata[:] = raw
 
-            try:
                 with sd.RawOutputStream(
                     samplerate=self.config.sample_rate,
                     blocksize=self.config.blocksize,
@@ -179,6 +179,9 @@ class AudioReceiver:
             except sd.PortAudioError as exc:
                 logging.error("Błąd urządzenia audio: %s", exc)
                 time.sleep(2)
+            except Exception as exc:  # noqa: BLE001
+                logging.exception("Nieoczekiwany błąd pętli odtwarzania: %s", exc)
+                time.sleep(1)
 
 
 class ControlServer:
@@ -196,35 +199,42 @@ class ControlServer:
         sock.listen(16)
 
         while True:
-            conn, addr = sock.accept()
-            conn.settimeout(8)
-            threading.Thread(target=self._handle_connection, args=(conn, addr[0]), daemon=True).start()
+            try:
+                conn, addr = sock.accept()
+                conn.settimeout(8)
+                threading.Thread(target=self._handle_connection, args=(conn, addr[0]), daemon=True).start()
+            except OSError as exc:
+                logging.error("Błąd accept na control server: %s", exc)
+                time.sleep(0.2)
 
     def _handle_connection(self, conn: socket.socket, host: str) -> None:
         paired = False
         with conn:
-            file = conn.makefile("rwb")
-            for line in file:
-                try:
-                    msg = ControlMessage.from_line(line)
-                except Exception:
-                    self._safe_send(file, ControlMessage("error", {"message": "invalid_json"}))
-                    continue
+            try:
+                file = conn.makefile("rwb")
+                for line in file:
+                    try:
+                        msg = ControlMessage.from_line(line)
+                    except Exception:
+                        self._safe_send(file, ControlMessage("error", {"message": "invalid_json"}))
+                        continue
 
-                if msg.cmd == "pair":
-                    supplied = str(msg.payload.get("password", ""))
-                    ok = hmac.compare_digest(supplied, self.config.pairing_password)
-                    paired = ok
-                    self._safe_send(file, ControlMessage("pair_result", {"ok": ok}))
-                    logging.info("Pair from %s -> %s", host, ok)
-                    continue
+                    if msg.cmd == "pair":
+                        supplied = str(msg.payload.get("password", ""))
+                        ok = hmac.compare_digest(supplied, self.config.pairing_password)
+                        paired = ok
+                        self._safe_send(file, ControlMessage("pair_result", {"ok": ok}))
+                        logging.info("Pair from %s -> %s", host, ok)
+                        continue
 
-                if not paired:
-                    self._safe_send(file, ControlMessage("error", {"message": "not_paired"}))
-                    continue
+                    if not paired:
+                        self._safe_send(file, ControlMessage("error", {"message": "not_paired"}))
+                        continue
 
-                response = self._dispatch(msg)
-                self._safe_send(file, response)
+                    response = self._dispatch(msg)
+                    self._safe_send(file, response)
+            except Exception as exc:  # noqa: BLE001
+                logging.warning("Błąd połączenia control (%s): %s", host, exc)
 
     def _safe_send(self, file: Any, message: ControlMessage) -> None:
         try:

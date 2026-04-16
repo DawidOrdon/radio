@@ -277,13 +277,13 @@ class ServerApp:
         mid = ttk.Frame(center)
         right = ttk.Frame(center)
         center.add(left, weight=1)
-        center.add(mid, weight=1)
-        center.add(right, weight=1)
+        center.add(mid, weight=2)
+        center.add(right, weight=3)
 
         ttk.Label(left, text="Klienci").pack(anchor="w")
         self.clients_container = ttk.Frame(left)
         self.clients_container.pack(fill="both", expand=True)
-        self.clients_canvas = tk.Canvas(self.clients_container, height=320)
+        self.clients_canvas = tk.Canvas(self.clients_container, height=240)
         self.clients_scrollbar = ttk.Scrollbar(self.clients_container, orient="vertical", command=self.clients_canvas.yview)
         self.clients_inner = ttk.Frame(self.clients_canvas)
         self.clients_inner.bind(
@@ -344,7 +344,7 @@ class ServerApp:
         ttk.Button(sched, text="Dodaj przedział", command=self.add_schedule_interval).pack(side="left", padx=8)
         ttk.Button(sched, text="Wyczyść harmonogram", command=self.clear_schedule).pack(side="left", padx=8)
 
-        self.schedule_list = tk.Listbox(self.root, height=5)
+        self.schedule_list = tk.Listbox(self.root, height=8)
         self.schedule_list.pack(fill="x", padx=8, pady=(0, 8))
 
     def _on_close(self) -> None:

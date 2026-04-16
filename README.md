@@ -15,6 +15,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 ### Serwer (GUI desktop)
 - wykrywa klientów automatycznie,
 - pozwala wybierać wielu klientów jednocześnie (checkboxy przy klientach),
+- układ GUI daje więcej miejsca na listę muzyki i przerwy/harmonogram, mniej na panel klientów,
 - streamuje dźwięk z wejścia mikrofonowego do zaznaczonych klientów,
 - skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
