@@ -170,6 +170,11 @@ class AudioBroadcaster:
             except queue.Empty:
                 break
 
+    def enqueue_silence_packets(self, payload_size: int, count: int = 6) -> None:
+        silence = b"\x00" * payload_size
+        for _ in range(max(1, count)):
+            self.enqueue_pcm(silence)
+
     def _sender_loop(self) -> None:
         while self.running.is_set():
             try:
@@ -615,6 +620,8 @@ class ServerApp:
     def pause_playback(self) -> None:
         self.pause_event.set()
         self.broadcaster.clear_pending_packets()
+        payload_size = self.config.blocksize * self.config.channels * 2
+        self.broadcaster.enqueue_silence_packets(payload_size=payload_size, count=8)
         self.stream_state_var.set("Stan streamu: PAUZA")
 
     def resume_playback(self) -> None:
