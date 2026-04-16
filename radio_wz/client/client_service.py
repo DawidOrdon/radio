@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import audioop
 import hmac
 import json
 import logging
@@ -49,6 +50,8 @@ class ClientRuntimeState:
     def __init__(self, config: ClientConfig) -> None:
         self.offset_ms = config.offset_ms
         self.output_device = config.output_device
+        self.last_audio_ts = 0.0
+        self.last_audio_rms = 0
         self._lock = threading.Lock()
 
     def set_offset(self, value: int) -> None:
@@ -66,6 +69,15 @@ class ClientRuntimeState:
     def get_output_device(self) -> int | None:
         with self._lock:
             return self.output_device
+
+    def mark_audio_packet(self, rms_value: int) -> None:
+        with self._lock:
+            self.last_audio_ts = time.time()
+            self.last_audio_rms = int(rms_value)
+
+    def get_audio_status(self) -> tuple[float, int]:
+        with self._lock:
+            return self.last_audio_ts, self.last_audio_rms
 
 
 class AudioReceiver:
@@ -102,6 +114,11 @@ class AudioReceiver:
             except Exception as exc:  # noqa: BLE001
                 logging.warning("Pominięto uszkodzony pakiet audio: %s", exc)
                 continue
+            try:
+                rms = audioop.rms(payload, 2)
+            except audioop.error:
+                rms = 0
+            self.state.mark_audio_packet(rms)
 
             try:
                 self.buffer.put_nowait(payload)

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import queue
 import shutil
 import socket
+import struct
 import threading
 import time
 import tkinter as tk
@@ -224,8 +226,11 @@ class ServerApp:
         ttk.Button(top, text="Start mikrofon (pass-through)", command=self.start_microphone).pack(side="left", padx=6)
         ttk.Button(top, text="Start kolejki", command=self.start_queue).pack(side="left", padx=6)
         ttk.Button(top, text="Stop nadawania", command=self.stop_playback).pack(side="left", padx=6)
+        ttk.Button(top, text="Test ton 1kHz", command=self.play_test_tone_to_clients).pack(side="left", padx=6)
         self.now_playing_var = tk.StringVar(value="Teraz odtwarzane: -")
         ttk.Label(top, textvariable=self.now_playing_var).pack(side="left", padx=12)
+        self.stream_state_var = tk.StringVar(value="Stan streamu: STOP")
+        ttk.Label(top, textvariable=self.stream_state_var).pack(side="left", padx=8)
 
         params = ttk.LabelFrame(self.root, text="Parametry audio (zmiana z poziomu programu)")
         params.pack(fill="x", padx=8, pady=8)
@@ -475,6 +480,7 @@ class ServerApp:
             self.broadcaster.start_sender()
             self.worker_thread = threading.Thread(target=target, daemon=True)
             self.worker_thread.start()
+            self.stream_state_var.set("Stan streamu: START")
             return True
 
     def start_microphone(self) -> None:
@@ -552,6 +558,7 @@ class ServerApp:
     def stop_playback(self) -> None:
         self.stop_event.set()
         self.broadcaster.stop()
+        self.stream_state_var.set("Stan streamu: STOP")
         with self.worker_lock:
             if self.worker_thread and self.worker_thread.is_alive() and threading.current_thread() != self.worker_thread:
                 self.worker_thread.join(timeout=1)
@@ -695,6 +702,42 @@ class ServerApp:
         self.scheduler.add_job(self.stop_playback, "cron", hour=stop_h, minute=stop_m, id=stop_id)
         self.schedule_job_ids.extend([start_id, stop_id])
         self.schedule_list.insert(tk.END, f"START {start_h:02d}:{start_m:02d} | STOP {stop_h:02d}:{stop_m:02d}")
+
+    def play_test_tone_to_clients(self) -> None:
+        destinations = self._current_destinations()
+        if not destinations:
+            messagebox.showwarning("Test tonu", "Najpierw zaznacz klientów")
+            return
+
+        self.stop_event.clear()
+        self.broadcaster.set_destinations(destinations)
+        self.broadcaster.start_sender()
+        self.stream_state_var.set("Stan streamu: TEST TON")
+
+        def worker() -> None:
+            sr = self.config.sample_rate
+            ch = self.config.channels
+            block = self.config.blocksize
+            total_frames = int(sr * 1.5)
+            for start in range(0, total_frames, block):
+                if self.stop_event.is_set():
+                    break
+                end = min(start + block, total_frames)
+                buf = bytearray()
+                for i in range(start, end):
+                    sample = int(0.25 * 32767 * math.sin(2 * math.pi * 1000 * (i / sr)))
+                    packed = struct.pack("<h", sample)
+                    for _ in range(ch):
+                        buf.extend(packed)
+                target_len = block * ch * 2
+                if len(buf) < target_len:
+                    buf.extend(b"\x00" * (target_len - len(buf)))
+                self.broadcaster.enqueue_pcm(bytes(buf))
+                time.sleep(block / sr)
+            self.stream_state_var.set("Stan streamu: STOP")
+            self.broadcaster.stop()
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def clear_schedule(self) -> None:
         for job_id in self.schedule_job_ids:

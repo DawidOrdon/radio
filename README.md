@@ -23,6 +23,8 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - ma globalny offset ustawiany na klientach (wpisywany ręcznie w sekundach),
 - ma przycisk wyboru wyjścia audio klienta z listy urządzeń odczytanej z klienta,
 - ma wyszukiwarkę utworów i dźingli w panelu serwera (ułatwienie dla dużych bibliotek),
+- ma ton testowy 1kHz do szybkiego sprawdzenia zaznaczonych klientów,
+- pokazuje status streamu (START/STOP/TEST TON).
 - ma prosty mechanizm parowania (hasło).
 
 ## Wymagania (Windows 11)
@@ -89,6 +91,7 @@ python -m radio_wz.client.client_gui --config client-config.json
 ```
 
 GUI klienta pozwala podejrzeć status i lokalnie zmienić offset / output device.
+Dodatkowo pokazuje wskaźnik "Audio RX" (czy aktualnie leci dźwięk) i umożliwia odtworzenie lokalnego tonu testowego.
 
 ## Uruchamianie klienta jako usługa (Windows)
 
