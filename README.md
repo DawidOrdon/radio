@@ -161,5 +161,5 @@ Manualnie (bez skryptu):
 
 ```powershell
 .\.venv\Scripts\pip install pyinstaller
-.\.venv\Scripts\pyinstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice -m radio_wz.client.client_gui
+.\.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice .\radio_wz\client\client_gui.py
 ```

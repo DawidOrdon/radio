@@ -17,6 +17,13 @@ Write-Host "[3/4] Instalacja PyInstaller"
 .\.venv\Scripts\pip install pyinstaller
 
 Write-Host "[4/4] Budowanie EXE klienta GUI"
-.\.venv\Scripts\pyinstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice -m radio_wz.client.client_gui
+.\.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice .\radio_wz\client\client_gui.py
+if ($LASTEXITCODE -ne 0) {
+  throw "PyInstaller zakończył się błędem (kod: $LASTEXITCODE)"
+}
 
-Write-Host "Gotowe. EXE: dist\\RadioWezelClientGUI.exe"
+if (Test-Path .\dist\RadioWezelClientGUI.exe) {
+  Write-Host "Gotowe. EXE: dist\\RadioWezelClientGUI.exe"
+} else {
+  throw "Build zakończony, ale nie znaleziono pliku dist\\RadioWezelClientGUI.exe"
+}
