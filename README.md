@@ -141,3 +141,25 @@ Jeśli dźwięk przerywa, zwiększ w `client-config.json`:
 - ewentualnie `blocksize` (np. 960 -> 1440).
 
 Dodatkowo upewnij się, że sieć LAN nie jest przeciążona i że urządzenie audio klienta działa z tym samym `sample_rate` i `channels` co serwer.
+
+
+## Budowanie klienta do EXE (Windows)
+
+Szybka ścieżka (PowerShell):
+
+```powershell
+./scripts/build_client_exe.ps1
+```
+
+Po buildzie plik znajdziesz tutaj:
+
+```text
+dist/RadioWezelClientGUI.exe
+```
+
+Manualnie (bez skryptu):
+
+```powershell
+.\.venv\Scripts\pip install pyinstaller
+.\.venv\Scripts\pyinstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice -m radio_wz.client.client_gui
+```
