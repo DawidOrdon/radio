@@ -1,0 +1,11 @@
+{
+  "discovery_port": 42500,
+  "default_audio_port": 42510,
+  "default_control_port": 42520,
+  "sample_rate": 48000,
+  "channels": 1,
+  "blocksize": 960,
+  "global_offset_ms": 2000,
+  "mic_input_device": null,
+  "pairing_password": "radio123"
+}
