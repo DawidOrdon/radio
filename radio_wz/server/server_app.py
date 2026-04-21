@@ -216,6 +216,7 @@ class ServerApp:
         self.worker_lock = threading.Lock()
         self.current_track: Path | None = None
         self.current_track_byte_pos = 0
+        self.active_mode = "idle"  # idle | mic | queue
         self.latest_mic_chunk: bytes | None = None
         self.mic_chunk_lock = threading.Lock()
         self.mic_monitor_running = threading.Event()
@@ -540,6 +541,15 @@ class ServerApp:
             self.stream_state_var.set("Stan streamu: START")
             return True
 
+    def _stop_worker_only(self) -> None:
+        self.stop_event.set()
+        self.pause_event.clear()
+        with self.worker_lock:
+            if self.worker_thread and self.worker_thread.is_alive():
+                self.worker_thread.join(timeout=1.5)
+            self.worker_thread = None
+        self.stop_event.clear()
+
     def _mix_pcm16(self, a: bytes, b: bytes) -> bytes:
         # szybszy miks w C (audioop) - mniej CPU i mniej przycięć
         size = min(len(a), len(b))
@@ -589,6 +599,10 @@ class ServerApp:
         self.mic_monitor_thread.start()
 
     def start_microphone(self) -> None:
+        if self.active_mode == "queue" and self.worker_thread and self.worker_thread.is_alive():
+            messagebox.showwarning("Transmisja", "Najpierw zatrzymaj/pauzuj kolejkę.")
+            return
+
         # Pass-through: to, co jest na wejściu z interfejsu audio, wysyłane jest bezpośrednio do klientów.
         def worker() -> None:
             def callback(indata, _frames, _time_info, status):
@@ -616,7 +630,8 @@ class ServerApp:
                 self.root.after(0, lambda: messagebox.showerror("Audio", f"Wejście audio niedostępne: {exc}"))
                 self.stop_playback()
 
-        self._start_worker(worker)
+        if self._start_worker(worker):
+            self.active_mode = "mic"
 
     def _decode_track_chunks(self, path: Path, start_byte: int = 0):
         segment = AudioSegment.from_file(path)
@@ -631,6 +646,13 @@ class ServerApp:
             yield chunk
 
     def start_queue(self) -> None:
+        if self.active_mode == "mic" and self.worker_thread and self.worker_thread.is_alive():
+            # przejście z transmisji mikrofonowej do kolejki bez konieczności ręcznego stop
+            self._stop_worker_only()
+        elif self.active_mode == "queue" and self.worker_thread and self.worker_thread.is_alive():
+            messagebox.showinfo("Kolejka", "Kolejka już działa.")
+            return
+
         self._start_mic_monitor_if_needed()
         selected_queue_idx = self.queue_list.curselection()
         if selected_queue_idx:
@@ -675,7 +697,8 @@ class ServerApp:
             self.root.after(0, lambda: self.now_playing_var.set("Teraz odtwarzane: -"))
             self.stop_playback()
 
-        self._start_worker(worker)
+        if self._start_worker(worker):
+            self.active_mode = "queue"
 
     def pause_playback(self) -> None:
         self.pause_event.set()
@@ -712,6 +735,7 @@ class ServerApp:
         self.pause_event.clear()
         self.broadcaster.stop()
         self.stream_state_var.set("Stan streamu: STOP")
+        self.active_mode = "idle"
         self.current_track = None
         self.current_track_byte_pos = 0
         with self.worker_lock:
