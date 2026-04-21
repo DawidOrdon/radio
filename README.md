@@ -19,7 +19,7 @@ Aplikacja radiowęzła szkolnego oparta o Python, z serwerem desktop i klientem 
 - streamuje dźwięk z wejścia mikrofonowego do zaznaczonych klientów (przycisk Start transmisji),
 - skanuje katalog muzyki i katalog dźingli (`mp3`, `wav`, `ogg`),
 - tworzy kolejkę i pozwala wstawiać dźingle przed/po utworze,
-- ma Pauza/Wznów dla kolejki: po wznowieniu utwór leci od miejsca pauzy,
+- ma Pauza/Wznów dla kolejki: po wznowieniu utwór leci od miejsca pauzy, a mikrofon działa niezależnie,
 - można uruchomić kolejkę ręcznie z automatyczną pauzą o wskazanej godzinie (Start do godziny),
 - po kliknięciu Start transmisji można od razu uruchomić kolejkę bez ręcznego restartu trybu,
 - mikrofon (wejście z interfejsu) jest miksowany z kolejką, więc działa cały czas także podczas muzyki,
@@ -163,3 +163,6 @@ Manualnie (bez skryptu):
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name RadioWezelClientGUI --hidden-import sounddevice .\radio_wz\client\client_gui.py
 ```
+
+
+Jeśli `client-config.json` nie istnieje, klient GUI utworzy domyślny plik automatycznie przy pierwszym starcie.

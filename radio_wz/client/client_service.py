@@ -9,7 +9,7 @@ import queue
 import socket
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,17 @@ class ClientConfig:
     def from_file(cls, path: Path) -> "ClientConfig":
         payload = json.loads(path.read_text(encoding="utf-8"))
         return cls(**payload)
+
+    @classmethod
+    def default(cls) -> "ClientConfig":
+        hostname = socket.gethostname().lower().replace(" ", "-")
+        return cls(
+            client_id=f"{hostname}-client",
+            client_name=f"Klient {hostname}",
+        )
+
+    def write_to_file(self, path: Path) -> None:
+        path.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 class ClientRuntimeState:

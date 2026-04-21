@@ -16,6 +16,9 @@ from radio_wz.client.client_service import AudioReceiver, ClientAnnouncer, Clien
 
 class ClientGuiApp:
     def __init__(self, config_path: Path) -> None:
+        if not config_path.exists():
+            default_cfg = ClientConfig.default()
+            default_cfg.write_to_file(config_path)
         self.config = ClientConfig.from_file(config_path)
         self.state = ClientRuntimeState(self.config)
 
@@ -197,8 +200,18 @@ class ClientGuiApp:
 
 def run_gui(config_path: Path) -> None:
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
-    app = ClientGuiApp(config_path)
-    app.run()
+    try:
+        app = ClientGuiApp(config_path)
+        app.run()
+    except Exception as exc:  # noqa: BLE001
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "Błąd konfiguracji klienta",
+            f"Nie udało się uruchomić klienta.\nSzczegóły: {exc}\n\n"
+            f"Sprawdź plik konfiguracji: {config_path}",
+        )
+        root.destroy()
 
 
 def build_parser() -> argparse.ArgumentParser:

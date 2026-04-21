@@ -608,8 +608,6 @@ class ServerApp:
             def callback(indata, _frames, _time_info, status):
                 if status:
                     logging.warning("Input status: %s", status)
-                if self.pause_event.is_set():
-                    return
                 self.broadcaster.enqueue_pcm(bytes(indata))
 
             try:
@@ -679,7 +677,18 @@ class ServerApp:
                         if self.stop_event.is_set():
                             break
                         while self.pause_event.is_set() and not self.stop_event.is_set():
-                            time.sleep(0.05)
+                            with self.mic_chunk_lock:
+                                mic_only = self.latest_mic_chunk
+                            payload_size = self.config.blocksize * self.config.channels * 2
+                            if mic_only:
+                                if len(mic_only) < payload_size:
+                                    mic_only = mic_only + (b"\x00" * (payload_size - len(mic_only)))
+                                elif len(mic_only) > payload_size:
+                                    mic_only = mic_only[:payload_size]
+                                self.broadcaster.enqueue_pcm(mic_only)
+                            else:
+                                self.broadcaster.enqueue_pcm(b"\x00" * payload_size)
+                            time.sleep(self.config.blocksize / self.config.sample_rate)
                         if self.stop_event.is_set():
                             break
                         mixed_chunk = self._mix_with_live_mic(chunk)
@@ -701,11 +710,12 @@ class ServerApp:
             self.active_mode = "queue"
 
     def pause_playback(self) -> None:
-        self.pause_event.set()
-        self.broadcaster.clear_pending_packets()
-        payload_size = self.config.blocksize * self.config.channels * 2
-        self.broadcaster.enqueue_silence_packets(payload_size=payload_size, count=8)
-        self.stream_state_var.set("Stan streamu: PAUZA")
+        if self.active_mode == "queue":
+            self.pause_event.set()
+            self.broadcaster.clear_pending_packets()
+            self.stream_state_var.set("Stan streamu: PAUZA KOLEJKI (MIC ON)")
+        elif self.active_mode == "mic":
+            self.stream_state_var.set("Stan streamu: MIC ON")
 
     def start_queue_until_time(self) -> None:
         raw = self.manual_stop_time_var.get().strip()
