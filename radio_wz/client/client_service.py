@@ -202,6 +202,9 @@ class AudioReceiver:
     def _resolve_output_device(self) -> int | None:
         preferred = self.state.get_output_device()
         if preferred is None:
+            auto = self._pick_stable_output_device()
+            if auto is not None:
+                return auto
             return None
         try:
             dev = sd.query_devices(preferred)
@@ -212,6 +215,35 @@ class AudioReceiver:
 
         logging.warning("Przełączam klienta na domyślne wyjście audio systemu")
         self.state.set_output_device(None)
+        auto = self._pick_stable_output_device()
+        if auto is not None:
+            return auto
+        return None
+
+    def _pick_stable_output_device(self) -> int | None:
+        try:
+            devices = sd.query_devices()
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("Nie można odczytać listy urządzeń audio: %s", exc)
+            return None
+
+        remote_keywords = ("remote audio", "rdp", "zdalny", "pulpit zdalny")
+        fallback_index: int | None = None
+
+        for idx, dev in enumerate(devices):
+            if int(dev.get("max_output_channels", 0)) <= 0:
+                continue
+            name = str(dev.get("name", "")).lower()
+            if fallback_index is None:
+                fallback_index = idx
+            if any(keyword in name for keyword in remote_keywords):
+                continue
+            logging.info("Auto-wybrane stabilne wyjście audio: #%s (%s)", idx, dev.get("name", "?"))
+            return idx
+
+        if fallback_index is not None:
+            logging.warning("Brak fizycznego wyjścia audio, używam pierwszego dostępnego: #%s", fallback_index)
+            return fallback_index
         return None
 
 

@@ -112,6 +112,7 @@ Na Windows wyjście audio może zniknąć po rozłączeniu Pulpitu zdalnego albo
 
 W tej wersji klient, gdy straci skonfigurowane urządzenie audio, automatycznie przełącza się na domyślne wyjście systemowe. Jeśli to nie pomaga:
 - ustaw na kliencie stałe fizyczne wyjście audio (np. Realtek/USB DAC), nie „Remote Audio” z RDP,
+- przy łączeniu RDP ustaw **Local Resources → Remote audio → Do not play** (żeby sesja RDP nie przejmowała audio),
 - uruchamiaj klienta jako usługę/zadanie systemowe (bez zależności od sesji użytkownika),
 - jeśli sprzęt nie ma stałego wyjścia audio, użyj „dummy HDMI” albo wirtualnego urządzenia audio.
 
