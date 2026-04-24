@@ -1,0 +1,14 @@
+{
+  "client_id": "nuc-a",
+  "client_name": "Wzmacniacz A",
+  "pairing_password": "radio123",
+  "discovery_port": 42500,
+  "audio_port": 42510,
+  "control_port": 42520,
+  "sample_rate": 48000,
+  "channels": 1,
+  "blocksize": 960,
+  "offset_ms": 2000,
+  "output_device": null,
+  "jitter_target_packets": 100
+}
