@@ -106,6 +106,15 @@ Dodatkowo pokazuje wskaźnik "Audio RX" (czy aktualnie leci dźwięk) i umożliw
 Najprościej przez NSSM lub Task Scheduler (`Run whether user is logged on or not`).
 Wtedy klient działa po starcie systemu bez aktywnej sesji RDP.
 
+### Uwaga: RDP / odłączony monitor a dźwięk
+
+Na Windows wyjście audio może zniknąć po rozłączeniu Pulpitu zdalnego albo po odpięciu monitora HDMI/DP (urządzenie audio z monitora przestaje istnieć).
+
+W tej wersji klient, gdy straci skonfigurowane urządzenie audio, automatycznie przełącza się na domyślne wyjście systemowe. Jeśli to nie pomaga:
+- ustaw na kliencie stałe fizyczne wyjście audio (np. Realtek/USB DAC), nie „Remote Audio” z RDP,
+- uruchamiaj klienta jako usługę/zadanie systemowe (bez zależności od sesji użytkownika),
+- jeśli sprzęt nie ma stałego wyjścia audio, użyj „dummy HDMI” albo wirtualnego urządzenia audio.
+
 ## Firewall (Windows)
 
 Otwórz porty:

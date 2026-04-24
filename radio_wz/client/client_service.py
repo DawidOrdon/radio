@@ -177,14 +177,19 @@ class AudioReceiver:
                             raw = raw[: frames * bytes_per_frame]
                     outdata[:] = raw
 
+                output_device = self._resolve_output_device()
                 with sd.RawOutputStream(
                     samplerate=self.config.sample_rate,
                     blocksize=self.config.blocksize,
                     channels=self.config.channels,
                     dtype="int16",
-                    device=self.state.get_output_device(),
+                    device=output_device,
                     callback=callback,
                 ):
+                    if output_device is None:
+                        logging.info("Audio output: domyślne urządzenie systemowe")
+                    else:
+                        logging.info("Audio output: urządzenie #%s", output_device)
                     while not self._stop.is_set():
                         time.sleep(0.25)
             except sd.PortAudioError as exc:
@@ -193,6 +198,21 @@ class AudioReceiver:
             except Exception as exc:  # noqa: BLE001
                 logging.exception("Nieoczekiwany błąd pętli odtwarzania: %s", exc)
                 time.sleep(1)
+
+    def _resolve_output_device(self) -> int | None:
+        preferred = self.state.get_output_device()
+        if preferred is None:
+            return None
+        try:
+            dev = sd.query_devices(preferred)
+            if int(dev.get("max_output_channels", 0)) > 0:
+                return preferred
+        except Exception as exc:  # noqa: BLE001
+            logging.warning("Skonfigurowane urządzenie #%s niedostępne: %s", preferred, exc)
+
+        logging.warning("Przełączam klienta na domyślne wyjście audio systemu")
+        self.state.set_output_device(None)
+        return None
 
 
 class ControlServer:
